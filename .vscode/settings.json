@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "string.h": "c",
+        "stdarg.h": "c",
+        "cstdlib": "c",
+        "multicolumn.h": "c",
+        "text.h": "c",
+        "fitz.h": "c",
+        "get_raw_lines.h": "c"
+    }
+}
