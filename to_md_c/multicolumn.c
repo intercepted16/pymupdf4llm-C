@@ -499,7 +499,7 @@ static int compare_rects_by_top_left_fz(const void *a, const void *b) {
     return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1 : 0;
 }
 
-fz_rect *column_boxes(fz_context *ctx, fz_document *doc, int page_number,
+static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number,
                       float footer_margin, float header_margin,
                       int no_image_text, fz_stext_page *textpage_param,
                       fz_rect *paths, int path_count,
@@ -752,6 +752,109 @@ fz_rect *column_boxes(fz_context *ctx, fz_document *doc, int page_number,
     return result;
 }
 
+
+float* column_boxes(
+    const char *pdf_path,
+    int page_number,
+    float footer_margin,
+    float header_margin,
+    int no_image_text,
+    const float *paths_flat, int path_count,
+    const float *avoid_flat, int avoid_count,
+    int ignore_images,
+    int *result_count_out
+) {
+    fz_context *ctx = NULL;
+    fz_document *doc = NULL;
+    fz_rect *paths = NULL;
+    fz_rect *avoid = NULL;
+    fz_rect *result = NULL;
+    *result_count_out = 0;
+
+    // Print all the input parameters for debugging
+    printf("PDF Path: %s\n", pdf_path);
+    printf("Page Number: %d\n", page_number);
+    printf("Footer Margin: %.2f\n", footer_margin);
+    printf("Header Margin: %.2f\n", header_margin);
+    printf("No Image Text: %d\n", no_image_text);
+    printf("Path Count: %d\n", path_count);
+    printf("Avoid Count: %d\n", avoid_count);
+    printf("Ignore Images: %d\n", ignore_images);
+
+    // Convert flat arrays to fz_rect arrays
+    if (paths_flat && path_count > 0) {
+        paths = malloc(path_count * sizeof(fz_rect));
+        for (int i = 0; i < path_count; i++) {
+            paths[i].x0 = paths_flat[i*4 + 0];
+            paths[i].y0 = paths_flat[i*4 + 1];
+            paths[i].x1 = paths_flat[i*4 + 2];
+            paths[i].y1 = paths_flat[i*4 + 3];
+        }
+    }
+
+    if (avoid_flat && avoid_count > 0) {
+        avoid = malloc(avoid_count * sizeof(fz_rect));
+        for (int i = 0; i < avoid_count; i++) {
+            avoid[i].x0 = avoid_flat[i*4 + 0];
+            avoid[i].y0 = avoid_flat[i*4 + 1];
+            avoid[i].x1 = avoid_flat[i*4 + 2];
+            avoid[i].y1 = avoid_flat[i*4 + 3];
+        }
+    }
+
+    ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
+    if (!ctx) return NULL;
+
+    fz_try(ctx) {
+        fz_register_document_handlers(ctx);
+        doc = fz_open_document(ctx, pdf_path);
+        if (!doc)
+            fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
+
+        int page_count = fz_count_pages(ctx, doc);
+        if (page_number < 0 || page_number >= page_count)
+            fz_throw(ctx, FZ_ERROR_GENERIC, "Page number out of range");
+
+        // Call internal _column_boxes function (assume already implemented)
+        result = _column_boxes(ctx, doc, page_number,
+                               footer_margin, header_margin,
+                               no_image_text,
+                               NULL,
+                               paths, path_count,
+                               avoid, avoid_count,
+                               ignore_images,
+                               result_count_out);
+
+        fz_drop_document(ctx, doc);
+    }
+    fz_catch(ctx) {
+        if (doc) fz_drop_document(ctx, doc);
+        if (result) free(result);
+        result = NULL;
+        *result_count_out = 0;
+    }
+
+    fz_drop_context(ctx);
+
+    // Free temporary arrays
+    if (paths) free(paths);
+    if (avoid) free(avoid);
+
+    // Flatten result to float array for Python
+    float *flat_result = NULL;
+    if (result && *result_count_out > 0) {
+        flat_result = malloc((*result_count_out) * 4 * sizeof(float));
+        for (int i = 0; i < *result_count_out; i++) {
+            flat_result[i*4 + 0] = result[i].x0;
+            flat_result[i*4 + 1] = result[i].y0;
+            flat_result[i*4 + 2] = result[i].x1;
+            flat_result[i*4 + 3] = result[i].y1;
+        }
+        free(result);
+    }
+
+    return flat_result;
+}
 
 #define EPSILON 5.0f
 

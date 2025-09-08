@@ -15,8 +15,7 @@
 /**
  * Detect column boundaries and return text rectangles
  * 
- * @param ctx MuPDF context
- * @param doc PDF document
+ * @param pdf_path Path to the PDF document
  * @param page_number Page number to analyze
  * @param footer_margin Footer margin to ignore
  * @param header_margin Header margin to ignore
@@ -30,7 +29,7 @@
  * @param result_count Output parameter for number of columns found
  * @return Array of column rectangles (caller must free)
  */
-fz_rect *column_boxes(fz_context *ctx, fz_document *doc, int page_number,
+float *column_boxes(const char *pdf_path, int page_number,
                       float footer_margin, float header_margin,
                       int no_image_text, fz_stext_page *textpage_param,
                       fz_rect *paths, int path_count,
