@@ -45,4 +45,21 @@ float *column_boxes(const char *pdf_path, int page_number,
  * @return 1 if table likely present, 0 if not, -1 on error
  */
 int page_has_table(const char *pdf_path, int page_number);
+
+/**
+ * Improved table detection function
+ * @param pdf_path Path to the PDF document
+ * @param page_number Page number to check
+ * @return 1 if table likely present, 0 if not, -1 on error
+ */
+int improved_page_has_table(const char *pdf_path, int page_number);
+
+/**
+ * Original table detection function for comparison
+ * @param pdf_path Path to the PDF document
+ * @param page_number Page number to check
+ * @return 1 if table likely present, 0 if not, -1 on error
+ */
+int original_page_has_table(const char *pdf_path, int page_number);
+
 #endif /* MULTICOLUMN_H */

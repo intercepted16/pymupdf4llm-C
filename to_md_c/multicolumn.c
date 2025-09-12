@@ -856,6 +856,9 @@ float* column_boxes(
     return flat_result;
 }
 
+// Include the improved table detection
+#include "improved_table_detection.h"
+
 #define EPSILON 5.0f
 
 static int count_unique_coords(fz_rect *rects, int count, int vert) {
@@ -880,75 +883,6 @@ static int count_unique_coords(fz_rect *rects, int count, int vert) {
 
 int page_has_table(const char *pdf_path, int page_number)
 {
-    fz_context *ctx = NULL;
-    fz_document *doc = NULL;
-    int has_table = 0;
-
-    ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
-    if (!ctx) return 0;
-
-    fz_try(ctx) {
-        fz_register_document_handlers(ctx);
-        doc = fz_open_document(ctx, pdf_path);
-        if (!doc)
-            fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
-
-        int page_count = fz_count_pages(ctx, doc);
-        int start = page_number - 1 >= 0 ? page_number - 1 : page_number;
-        int end   = page_number + 1 < page_count ? page_number + 1 : page_number;
-
-        fz_rect *blocks = malloc(sizeof(fz_rect) * 3000);
-        int block_count = 0;
-
-        for (int p = start; p <= end; p++) {
-            fz_page *page = fz_load_page(ctx, doc, p);
-            fz_stext_options opts = {0};
-            fz_stext_page *textpage = fz_new_stext_page_from_page(ctx, page, &opts);
-
-            // Offset y for previous/next pages
-            float y_offset = 0.0f;
-            if (p < page_number) {
-                y_offset = -fz_bound_page(ctx, page).y1;
-            } else if (p > page_number) {
-                y_offset = fz_bound_page(ctx, page).y1;
-            }
-
-            for (fz_stext_block *block = textpage->first_block;
-                 block && block_count < 3000;
-                 block = block->next) {
-                if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
-                fz_rect r = block->bbox;
-                r.y0 += y_offset;
-                r.y1 += y_offset;
-                blocks[block_count++] = r;
-            }
-
-            fz_drop_stext_page(ctx, textpage);
-            fz_drop_page(ctx, page);
-        }
-
-        // Simple 2x2 cluster check
-        for (int i = 0; i < block_count && !has_table; i++) {
-            int row_count = 0, col_count = 0;
-            for (int j = 0; j < block_count; j++) {
-                if (i == j) continue;
-                if (fabs(blocks[i].y0 - blocks[j].y0) < EPSILON) row_count++;
-                if (fabs(blocks[i].x0 - blocks[j].x0) < EPSILON) col_count++;
-            }
-            if (row_count >= 1 && col_count >= 1) { // at least 2x2 cluster
-                has_table = 1;
-                break;
-            }
-        }
-
-        free(blocks);
-        fz_drop_document(ctx, doc);
-    }
-    fz_catch(ctx) {
-        if (doc) fz_drop_document(ctx, doc);
-        has_table = 0;
-    }
-
-    fz_drop_context(ctx);
-    return has_table;
+    // Use the improved table detection algorithm
+    return improved_page_has_table(pdf_path, page_number);
 }

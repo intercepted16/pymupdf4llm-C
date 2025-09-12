@@ -41,6 +41,7 @@ from binascii import b2a_base64
 import pymupdf
 import ctypes
 from pymupdf import mupdf
+import re
 # from pymupdf4llm.helpers.get_text_lines import is_white
 # from pymupdf4llm.helpers.multi_column import column_boxes
 # from pymupdf4llm.helpers.progress import ProgressBar
@@ -52,7 +53,7 @@ import numba
 import numpy as np
 from multiprocessing import Pool, cpu_count
 import concurrent.futures
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Optional, Union, Any, Callable
 from numba.core import types
 from utils import suppress_output
 
@@ -61,23 +62,23 @@ lib = ctypes.CDLL("./get_raw_markdown.so")
 
 # Performance profiler
 class PerformanceProfiler:
-    def __init__(self):
-        self.timings = defaultdict(list)
-        self.start_times = {}
+    def __init__(self) -> None:
+        self.timings: Dict[str, List[float]] = defaultdict(list)
+        self.start_times: Dict[str, float] = {}
     
-    def start_timer(self, name):
+    def start_timer(self, name: str) -> None:
         self.start_times[name] = time.perf_counter()
     
-    def end_timer(self, name):
+    def end_timer(self, name: str) -> float:
         if name in self.start_times:
             elapsed = time.perf_counter() - self.start_times[name]
             self.timings[name].append(elapsed)
             del self.start_times[name]
             return elapsed
-        return 0
+        return 0.0
     
-    def get_stats(self):
-        stats = {}
+    def get_stats(self) -> Dict[str, Dict[str, float]]:
+        stats: Dict[str, Dict[str, float]] = {}
         for name, times in self.timings.items():
             stats[name] = {
                 'total': sum(times),
@@ -88,7 +89,7 @@ class PerformanceProfiler:
             }
         return stats
     
-    def print_report(self):
+    def print_report(self) -> None:
         print("\n" + "="*60)
         print("PERFORMANCE REPORT")
         print("="*60)
@@ -118,10 +119,10 @@ class PerformanceProfiler:
             elapsed = self.end_timer(name)
             print(f"[perf] {name}: {elapsed:.6f}s")
 
-    def timeit(self, name: str):
+    def timeit(self, name: str) -> Callable[[Callable], Callable]:
         """Decorator to time a function and record timings under `name`."""
-        def decorator(fn):
-            def wrapper(*a, **k):
+        def decorator(fn: Callable) -> Callable:
+            def wrapper(*a: Any, **k: Any) -> Any:
                 self.start_timer(name)
                 try:
                     return fn(*a, **k)
@@ -135,7 +136,7 @@ class PerformanceProfiler:
 # Global profiler instance
 profiler = PerformanceProfiler()
 
-def save_image(parms, rect, i):
+def save_image(parms: 'Parameters', rect: 'pymupdf.Rect', i: int) -> str:
     """Optionally render the rect part of a page."""
     page = parms.page
     image_size_limit_val = getattr(parms, "image_size_limit", image_size_limit)
@@ -170,7 +171,7 @@ def save_image(parms, rect, i):
 
 
 
-def page_is_ocr(page):
+def page_is_ocr(page: 'pymupdf.Page') -> bool:
     """Check if page exclusively contains OCR text."""
     try:
         text_types = set([b[0] for b in page.get_bboxlog() if "text" in b[0]])
@@ -180,7 +181,7 @@ def page_is_ocr(page):
         pass
     return False
 
-def output_tables(parms, text_rect, defer=False, global_written_tables=None):
+def output_tables(parms: 'Parameters', text_rect: Optional['pymupdf.Rect'], defer: bool = False, global_written_tables: Optional[List[int]] = None) -> str:
     """Output tables above given text rectangle."""
     this_md = ""
     written_tables = global_written_tables if global_written_tables is not None else parms.written_tables
@@ -226,7 +227,7 @@ def output_tables(parms, text_rect, defer=False, global_written_tables=None):
             written_tables.append(i)
     return this_md
 
-def output_images(parms, text_rect, force_text):
+def output_images(parms: 'Parameters', text_rect: Optional['pymupdf.Rect'], force_text: bool) -> str:
     """Output images and graphics above text rectangle."""
     if not parms.img_rects:
         return ""
@@ -262,7 +263,7 @@ def output_images(parms, text_rect, force_text):
     return this_md
 
 
-def intersects_rects(rect, rect_list):
+def intersects_rects(rect: 'pymupdf.Rect', rect_list: List['pymupdf.Rect']) -> int:
     """Check if middle of rect is contained in a rect of the list."""
     delta = (-1, -1, 1, 1)
     enlarged = rect + delta
@@ -274,37 +275,37 @@ def intersects_rects(rect, rect_list):
 
 @dataclass
 class Parameters:
-    page: object = None
+    page: Optional['pymupdf.Page'] = None
     filename: str = ""
     md_string: str = ""
-    images: list = None
-    tables: list = None
-    graphics: list = None
-    words: list = None
-    line_rects: list = None
-    written_tables: list = None
-    written_images: list = None
+    images: Optional[List[Dict[str, Any]]] = None
+    tables: Optional[List[Dict[str, Any]]] = None
+    graphics: Optional[List[Dict[str, Any]]] = None
+    words: Optional[List[Tuple[float, float, float, float, str, int]]] = None
+    line_rects: Optional[List['pymupdf.Rect']] = None
+    written_tables: Optional[List[int]] = None
+    written_images: Optional[List[int]] = None
     accept_invisible: bool = False
-    tab_rects0: list = None
-    tab_rects: dict = None
-    bg_color: object = None
-    clip: object = None
-    links: list = None
-    annot_rects: list = None
-    img_rects: list = None
-    tabs: list = None
-    vg_clusters0: list = None
-    vg_clusters: dict = None
-    textpage: object = None
+    tab_rects0: Optional[List[Tuple[int, 'pymupdf.Rect']]] = None
+    tab_rects: Optional[Dict[int, 'pymupdf.Rect']] = None
+    bg_color: Optional[Tuple[float, float, float]] = None
+    clip: Optional['pymupdf.Rect'] = None
+    links: Optional[List[Dict[str, Any]]] = None
+    annot_rects: Optional[List['pymupdf.Rect']] = None
+    img_rects: Optional[List['pymupdf.Rect']] = None
+    tabs: Optional[List[Any]] = None
+    vg_clusters0: Optional[List['pymupdf.Rect']] = None
+    vg_clusters: Optional[Dict[int, 'pymupdf.Rect']] = None
+    textpage: Optional[Any] = None
 
 
-DETECT_BG_COLOR = True
-image_size_limit = 0.02
-table_strategy = "lines_strict"
-force_text = True
-EXTRACT_WORDS = False
+DETECT_BG_COLOR: bool = True
+image_size_limit: float = 0.02
+table_strategy: str = "lines_strict"
+force_text: bool = True
+EXTRACT_WORDS: bool = False
 
-def get_bg_color(page):
+def get_bg_color(page: 'pymupdf.Page') -> Optional[Tuple[float, float, float]]:
     """Determine the background color of the page."""
     try:
         pix = page.get_pixmap(
@@ -349,7 +350,7 @@ def get_bg_color(page):
         return None
 
 
-def get_page_output(doc, pno: int, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS, page_separators, defer_tables=False):
+def get_page_output(doc: 'pymupdf.Document', pno: int, margins: Union[List[float], float], textflags: int, FILENAME: str, IGNORE_IMAGES: bool, IGNORE_GRAPHICS: bool, page_separators: bool, defer_tables: bool = False) -> Parameters:
     """Process one page and return parameters object."""
     # Ensure all required globals are available
     global DETECT_BG_COLOR, image_size_limit, table_strategy, force_text, EXTRACT_WORDS
@@ -494,7 +495,16 @@ def get_page_output(doc, pno: int, margins, textflags, FILENAME, IGNORE_IMAGES, 
     else:
         paths = []
 
-    vg_clusters0 = [bbox for bbox in page.cluster_drawings(drawings=paths) if is_significant(bbox, paths)]
+    if paths:
+        path_rects = np.array([pymupdf_rect_to_tuple(p["rect"]) for p in paths], dtype=np.float64)
+        vg_clusters0 = [
+            bbox
+            for bbox in page.cluster_drawings(drawings=paths)
+            if is_significant(bbox, path_rects)
+        ]
+    else:
+        vg_clusters0 = []
+
     vg_clusters0.extend(parms.img_rects)
     parms.vg_clusters0 = refine_boxes(vg_clusters0)
     parms.vg_clusters = dict((i, r) for i, r in enumerate(parms.vg_clusters0))
@@ -581,10 +591,10 @@ def get_page_output(doc, pno: int, margins, textflags, FILENAME, IGNORE_IMAGES, 
     return parms
 
 
-def process_deferred_tables(all_page_results, doc):
+def process_deferred_tables(all_page_results: List[Tuple[int, Optional[Parameters]]], doc: 'pymupdf.Document') -> List[Tuple[int, Optional[Parameters]]]:
     """Process tables from all pages sequentially to avoid race conditions."""
     with profiler.time_block('process_deferred_tables'):
-        global_written_tables = []
+        global_written_tables = set()  # Use a set for efficient lookups
 
         # Sort results by page number to ensure correct order
         all_page_results.sort(key=lambda x: x[0])
@@ -607,13 +617,16 @@ def process_deferred_tables(all_page_results, doc):
             # Process all deferred tables found on this page
             for tab_data in parms.deferred_tables:
                 table_index = tab_data['index']
-                if table_index in global_written_tables:
+                table_id = (pno, table_index)  # Create a globally unique ID
+
+                if table_id in global_written_tables:
+                    print(f"    Skipping already written table {table_id}")
                     continue
 
                 table_md = tab_data.get('markdown', '')
                 page_table_md += table_md + "\n"
-                global_written_tables.append(table_index)
-                print(f"    Added table {table_index}: {len(table_md)} characters")
+                global_written_tables.add(table_id)
+                print(f"    Added table {table_id}: {len(table_md)} characters")
 
                 # Add cell rectangles to line_rects if EXTRACT_WORDS is enabled
                 if EXTRACT_WORDS and tab_data.get('cells'):
@@ -722,26 +735,46 @@ def optimize_rect_overlaps_numba(rects: np.ndarray, enlarge: float = 0.0) -> np.
     else:
         return np.empty((0, 4), dtype=np.float64)
 
-def pymupdf_rect_to_tuple(rect) -> Tuple[float, float, float, float]:
+def pymupdf_rect_to_tuple(rect: 'pymupdf.Rect') -> Tuple[float, float, float, float]:
     """Convert PyMuPDF Rect to tuple for Numba compatibility."""
     return (rect.x0, rect.y0, rect.x1, rect.y1)
 
-def tuple_to_pymupdf_rect(rect_tuple: Tuple[float, float, float, float]):
+def tuple_to_pymupdf_rect(rect_tuple: Tuple[float, float, float, float]) -> 'pymupdf.Rect':
     """Convert tuple back to PyMuPDF Rect."""
     return pymupdf.Rect(*rect_tuple)
 
+def cleanup_markdown_text(text: str) -> str:
+    """Clean up markdown text by removing unwanted tags and characters."""
+    if not text:
+        return ""
+    
+    # Replace <br> tags with "" (nothing)
+    text = text.replace("<br>", "").replace("<br/>", "")
+    text = re.sub(r'\*\*\*\*', '** **', text)
+    text = re.sub(r'[^\x20-\x7E\n]', '', text)  # keeps standard ASCII + newline
+    
+    # Remove Unicode replacement character
+    text = text.replace("\ufffd", "")
+    
+    # Normalize newlines (3 or more to 2)
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+        
+    return text
+
+
 # Define missing helper functions locally
-def is_white(text):
+def is_white(text: str) -> str:
     """Check if text is whitespace only."""
     return not text or text.isspace()
 
 class ProgressBar:
     """Simple progress bar replacement."""
-    def __init__(self, iterable):
-        self.iterable = iterable
-        self.total = len(iterable) if hasattr(iterable, '__len__') else None
+    def __init__(self, iterable: Any) -> None:
+        self.iterable: Any = iterable
+        self.total: Optional[int] = len(iterable) if hasattr(iterable, '__len__') else None
         
-    def __iter__(self):
+    def __iter__(self) -> Any:
         for i, item in enumerate(self.iterable):
             if self.total:
                 print(f"Progress: {i+1}/{self.total}")
@@ -783,10 +816,10 @@ lib.get_raw_lines.argtypes = [ctypes.c_char_p]
 lib.free_line_array.restype = None
 lib.free_line_array.argtypes = [ctypes.POINTER(LineArray)]
 
-lib.to_markdown.restype = ctypes.c_char_p
-lib.to_markdown.argtypes = [ctypes.c_char_p]
+lib.to_markdown.restype = ctypes.c_int
+lib.to_markdown.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
 
-def get_raw_lines(pdf_path, clip=None, tolerance=3, ignore_invisible=True):
+def get_raw_lines(pdf_path: str, clip: Optional['pymupdf.Rect'] = None, tolerance: int = 3, ignore_invisible: bool = True) -> List[Tuple['pymupdf.Rect', List[Dict[str, Any]]]]:
     """
     C-backed get_raw_lines keeping the same Python signature.
     Returns: list of [Rect, [spans]] like the original Python version.
@@ -833,25 +866,23 @@ def get_raw_lines(pdf_path, clip=None, tolerance=3, ignore_invisible=True):
     print(f"done get_raw_lines ({elapsed:.4f}s)")
     return result
 
-def c_to_markdown(pdf_path: str) -> str:
-    """C-backed to_markdown keeping the same Python signature."""
+def c_to_markdown(pdf_path: str, output_path: str) -> int:
+    """C-backed to_markdown that writes to a file and returns a status."""
     profiler.start_timer('c_to_markdown')
 
     pdf_path_bytes = pdf_path.encode("utf-8")
+    output_path_bytes = output_path.encode("utf-8")
     if not pdf_path_bytes:
         raise ValueError("PDF path must be provided.")
+    if not output_path_bytes:
+        raise ValueError("Output path must be provided.")
 
     with suppress_output():
-        md_bytes = lib.to_markdown(pdf_path_bytes)
-    if not md_bytes:
-        profiler.end_timer('c_to_markdown')
-        return ""
-    md_string = md_bytes.decode("utf-8")
-    # ctypes.free(md_bytes)  # Free the allocated memory in C
+        status = lib.to_markdown(pdf_path_bytes, output_path_bytes)
 
     elapsed = profiler.end_timer('c_to_markdown')
     print(f"C markdown generation completed ({elapsed:.4f}s)")
-    return md_string
+    return status
 
 def is_likely_table(pdf_path: str, page_number: int) -> int:
     """Check if a page likely contains a table based on column detection."""
@@ -872,7 +903,7 @@ pymupdf.TOOLS.unset_quad_corrections(True)
 
 
 # Characters recognized as bullets when starting a line.
-bullet = tuple(
+bullet: Tuple[str, ...] = tuple(
     [
         "- ",
         "* ",
@@ -888,7 +919,7 @@ bullet = tuple(
     + list(map(chr, range(9632, 9680)))
 )
 
-GRAPHICS_TEXT = "\n![](%s)\n"
+GRAPHICS_TEXT: str = "\n![](%s)\n"
 
 
 class IdentifyHeaders:
@@ -907,11 +938,11 @@ class IdentifyHeaders:
 
     def __init__(
         self,
-        doc: str,
-        pages: list = None,
+        doc: Union[str, 'pymupdf.Document'],
+        pages: Optional[List[int]] = None,
         body_limit: float = 12,  # force this to be body text
         max_levels: int = 6,  # accept this many header levels
-    ):
+    ) -> None:
         """Read all text and make a dictionary of fontsizes.
 
         Args:
@@ -948,7 +979,7 @@ class IdentifyHeaders:
             mydoc.close()
 
         # maps a fontsize to a string of multiple # header tag characters
-        self.header_id = {}
+        self.header_id: Dict[float, str] = {}
 
         # If not provided, choose the most frequent font size as body text.
         # If no text at all on all pages, just use body_limit.
@@ -974,7 +1005,7 @@ class IdentifyHeaders:
         if self.header_id.keys():
             self.body_limit = min(self.header_id.keys()) - 1
 
-    def get_header_id(self, span: dict, page=None) -> str:
+    def get_header_id(self, span: Dict[str, Any], page: Optional['pymupdf.Page'] = None) -> str:
         """Return appropriate markdown header prefix.
 
         Given a text span from a "dict"/"rawdict" extraction, determine the
@@ -1000,19 +1031,19 @@ class TocHeaders:
     Examples where this works very well are the Adobe PDF documents.
     """
 
-    def __init__(self, doc: str):
+    def __init__(self, doc: Union[str, 'pymupdf.Document']) -> None:
         """Read and store the TOC of the document."""
         if isinstance(doc, pymupdf.Document):
             mydoc = doc
         else:
             mydoc = pymupdf.open(doc)
 
-        self.TOC = doc.get_toc()
+        self.TOC: List[List[Any]] = doc.get_toc()
         if mydoc != doc:
             # if opened here, close it now
             mydoc.close()
 
-    def get_header_id(self, span: dict, page=None) -> str:
+    def get_header_id(self, span: Dict[str, Any], page: Optional['pymupdf.Page'] = None) -> str:
         """Return appropriate markdown header prefix.
 
         Given a text span from a "dict"/"rawdict" extraction, determine the
@@ -1036,7 +1067,7 @@ class TocHeaders:
         return ""
 
 
-def refine_boxes(boxes, enlarge=0):
+def refine_boxes(boxes: List['pymupdf.Rect'], enlarge: float = 0) -> List['pymupdf.Rect']:
     """Join any rectangles with a pairwise non-empty overlap using Numba optimization."""
     if not boxes:
         return []
@@ -1141,19 +1172,17 @@ else:
         return has_interior_intersection
 
 
-def is_significant(box, paths):
+def is_significant(box, path_rects: np.ndarray):
     """Optimized version using Numba for the core computation."""
-    if not paths:
+    if path_rects.size == 0:
         return False
 
-    # Convert paths to numpy array
-    path_rects = np.array([pymupdf_rect_to_tuple(p["rect"]) for p in paths], dtype=np.float64)
     box_x0, box_y0, box_x1, box_y1 = pymupdf_rect_to_tuple(box)
 
     return is_significant_numba(box_x0, box_y0, box_x1, box_y1, path_rects)
 
 
-def process_page_batch(args):
+def process_page_batch(args: Tuple[str, List[int], Tuple[Any, ...], Callable, bool]) -> List[Tuple[int, Optional[Parameters]]]:
     """Process a batch of pages in parallel."""
     doc_name, page_numbers, doc_args, get_page_output, page_separators = args
     name = f'batch_processing_{page_numbers[0]}_{page_numbers[-1]}'
@@ -1178,42 +1207,73 @@ def process_page_batch(args):
     return results
 
 
+# Global variable for the worker process
+worker_doc = None
+
+def init_worker(doc_path: str):
+    """
+    Initializer for each worker process. Opens the document and stores it in a
+    global variable private to each worker.
+    """
+    global worker_doc
+    if worker_doc is None:
+        worker_doc = pymupdf.open(doc_path)
+
+def process_page_worker(pno: int, doc_args: tuple, page_separators: bool) -> tuple:
+    """
+    Worker function to process a single page.
+    Uses the global 'worker_doc' object initialized by 'init_worker'.
+    """
+    global worker_doc
+    if worker_doc is None:
+        raise RuntimeError("Worker document not initialized.")
+    
+    try:
+        result = get_page_output(worker_doc, pno, *doc_args, page_separators, defer_tables=True)
+        return (pno, result)
+    except Exception as e:
+        print(f"Error processing page {pno} in worker: {e}")
+        return (pno, None)
+
+
 def to_markdown(
-    doc,
+    doc: Union[str, 'pymupdf.Document'],
     *,
-    pages=None,
-    hdr_info=None,
-    write_images=False,
-    embed_images=False,
-    ignore_images=False,
-    ignore_graphics=False,
-    detect_bg_color=True,
-    image_path="",
-    image_format="png",
-    image_size_limit=0.05,
-    filename=None,
-    force_text=True,
-    page_chunks=False,
-    page_separators=False,
-    margins=0,
-    dpi=150,
-    page_width=612,
-    page_height=None,
-    table_strategy="lines_strict",
-    graphics_limit=None,
-    fontsize_limit=3,
-    ignore_code=False,
-    extract_words=False,
-    show_progress=False,
-    use_glyphs=False,
-    ignore_alpha=False,
-    batch_size=16,
-    num_workers=None,
-) -> str:
+    output_path: str,
+    pages: Optional[List[int]] = None,
+    hdr_info: Optional[Union[Callable, Any]] = None,
+    write_images: bool = False,
+    embed_images: bool = False,
+    ignore_images: bool = False,
+    ignore_graphics: bool = False,
+    detect_bg_color: bool = True,
+    image_path: str = "",
+    image_format: str = "png",
+    image_size_limit: float = 0.05,
+    filename: Optional[str] = None,
+    force_text: bool = True,
+    page_chunks: bool = False,
+    page_separators: bool = False,
+    margins: Union[float, List[float]] = 0,
+    dpi: int = 150,
+    page_width: float = 612,
+    page_height: Optional[float] = None,
+    table_strategy: str = "lines_strict",
+    graphics_limit: Optional[int] = None,
+    fontsize_limit: int = 3,
+    ignore_code: bool = False,
+    extract_words: bool = False,
+    show_progress: bool = False,
+    use_glyphs: bool = False,
+    ignore_alpha: bool = False,
+    batch_size: int = 16,
+    num_workers: Optional[int] = None,
+) -> Any:
     """Process the document and return the text of the selected pages.
 
     Args:
         doc: pymupdf.Document or string.
+        output_path: (str) path to the output markdown file.
         pages: list of page numbers to consider (0-based).
         hdr_info: callable or object having method 'get_hdr_info'.
         write_images: (bool) save images / graphics as files.
@@ -1260,7 +1320,7 @@ def to_markdown(
 
     # Set up parallel processing
     if num_workers is None:
-        num_workers = min(cpu_count(), batch_size)
+        num_workers = cpu_count()
 
     # Global variables setup
     DPI = dpi
@@ -1341,221 +1401,9 @@ def to_markdown(
                 return text
         return None
 
-    # Cache raw lines for the document - only do this once
-    profiler.start_timer('cache_raw_lines')
-    raw_lines_cache = get_raw_lines(
-        doc.name if hasattr(doc, "name") else doc,
-        clip=None,
-        tolerance=3,
-        ignore_invisible=True,
-    )
-    profiler.end_timer('cache_raw_lines')
+    
 
-    def write_text(parms, clip: pymupdf.Rect, tables=True, images=True, force_text=force_text):
-        """Output the text found inside the given clip."""
-        with profiler.time_block('write_text_total'):
-            if clip is None:
-                clip = parms.clip
-            out_string = ""
-
-        # Filter cached raw lines for those intersecting the clip
-        nlines = [
-            l for l in raw_lines_cache
-            if clip.intersects(l[0]) and not intersects_rects(l[0], list(parms.tab_rects.values()))
-        ]
-
-        parms.line_rects.extend([l[0] for l in nlines])
-
-        prev_lrect = None
-        prev_bno = -1
-        code = False
-        prev_hdr_string = None
-
-        for lrect, spans in nlines:
-            if len(spans) > 30:
-                profiler.start_timer(f'write_text_long_line_{int(lrect.y0)}')
-            if intersects_rects(lrect, parms.img_rects):
-                continue
-
-            # Handle tables above this text block
-            if tables:
-                tab_candidates = [
-                    (i, tab_rect)
-                    for i, tab_rect in parms.tab_rects.items()
-                    if tab_rect.y1 <= lrect.y0
-                    and i not in parms.written_tables
-                    and (
-                        lrect.x0 <= tab_rect.x0 < lrect.x1
-                        or lrect.x0 < tab_rect.x1 <= lrect.x1
-                        or tab_rect.x0 <= lrect.x0 < lrect.x1 <= tab_rect.x1
-                    )
-                ]
-                for i, _ in tab_candidates:
-                    out_string += "\n" + parms.tabs[i].to_markdown(clean=False) + "\n"
-                    if EXTRACT_WORDS:
-                        cells = sorted(
-                            set([
-                                pymupdf.Rect(c)
-                                for c in parms.tabs[i].header.cells + parms.tabs[i].cells
-                                if c is not None
-                            ]),
-                            key=lambda c: (c.y1, c.x0),
-                        )
-                        parms.line_rects.extend(cells)
-                    parms.written_tables.append(i)
-                    prev_hdr_string = None
-
-            # Handle images above this text block
-            if images:
-                for i in range(len(parms.img_rects)):
-                    if i in parms.written_images:
-                        continue
-                    r = parms.img_rects[i]
-                    if r.y1 <= lrect.y0 and (
-                        lrect.x0 <= r.x0 < lrect.x1
-                        or lrect.x0 < r.x1 <= lrect.x1
-                        or r.x0 <= lrect.x0 < lrect.x1 <= r.x1
-                    ):
-                        pathname = save_image(parms, r, i)
-                        if pathname:
-                            out_string += GRAPHICS_TEXT % pathname
-
-                        if force_text is True:
-                            img_txt = write_text(parms, r, tables=False, images=False, force_text=True)
-                            if not is_white(img_txt):
-                                out_string += img_txt
-                        parms.written_images.append(i)
-                        prev_hdr_string = None
-
-            parms.line_rects.append(lrect)
-            
-            # Add line break if far from previous line
-            if (
-                len(parms.line_rects) > 1
-                and lrect.y1 - parms.line_rects[-2].y1 > lrect.height * 1.5
-            ):
-                out_string += "\n"
-
-            text = " ".join([s["text"] for s in spans]).strip()
-
-            # Check text formatting
-            all_strikeout = all([s.get("char_flags", 0) & 1 for s in spans])
-            all_italic = all([s.get("flags", 0) & 2 for s in spans])
-            all_bold = all([(s.get("flags", 0) & 16) or (s.get("char_flags", 0) & 8) for s in spans])
-            all_mono = all([s.get("flags", 0) & 8 for s in spans])
-
-            hdr_string = max_header_id(spans, page=parms.page)
-
-            if hdr_string:
-                if all_mono:
-                    text = "`" + text + "`"
-                if all_italic:
-                    text = "_" + text + "_"
-                if all_bold:
-                    text = "**" + text + "**"
-                if all_strikeout:
-                    text = "~~" + text + "~~"
-                if hdr_string != prev_hdr_string:
-                    out_string += hdr_string + text + "\n"
-                else:
-                    while out_string.endswith("\n"):
-                        out_string = out_string[:-1]
-                    out_string += " " + text + "\n"
-                prev_hdr_string = hdr_string
-                continue
-
-            prev_hdr_string = hdr_string
-
-            # Handle code blocks
-            if all_mono and not IGNORE_CODE:
-                if not code:
-                    out_string += "```\n"
-                    code = True
-                delta = int((lrect.x0 - clip.x0) / (spans[0].get("size", 12) * 0.5))
-                indent = " " * delta
-                out_string += indent + text + "\n"
-                continue
-
-            if code and not all_mono:
-                out_string += "```\n"
-                code = False
-
-            span0 = spans[0]
-            bno = span0.get("block", 0)
-            if bno != prev_bno:
-                out_string += "\n"
-                prev_bno = bno
-
-            # Check for line breaks
-            if (
-                prev_lrect
-                and lrect.y1 - prev_lrect.y1 > lrect.height * 1.5
-                or span0["text"].startswith("[")
-                or span0["text"].startswith(bullet)
-                or span0.get("flags", 0) & 1
-            ):
-                out_string += "\n"
-            prev_lrect = lrect
-
-            if code:
-                out_string += "```\n"
-                code = False
-
-            # Process individual spans
-            for i, s in enumerate(spans):
-                mono = s.get("flags", 0) & 8
-                bold = (s.get("flags", 0) & 16) or (s.get("char_flags", 0) & 8)
-                italic = s.get("flags", 0) & 2
-                strikeout = s.get("char_flags", 0) & 1
-
-                prefix = ""
-                suffix = ""
-                if mono:
-                    prefix = "`" + prefix
-                    suffix += "`"
-                if bold:
-                    prefix = "**" + prefix
-                    suffix += "**"
-                if italic:
-                    prefix = "_" + prefix
-                    suffix += "_"
-                if strikeout:
-                    prefix = "~~" + prefix
-                    suffix += "~~"
-
-                ltext = resolve_links(parms.links, s)
-                if ltext:
-                    text = f"{hdr_string}{prefix}{ltext}{suffix} "
-                else:
-                    text = f"{hdr_string}{prefix}{s['text'].strip()}{suffix} "
-                
-                if text.startswith(bullet):
-                    text = "- " + text[1:]
-                    text = text.replace("  ", " ")
-                    dist = span0.get("bbox", [0, 0, 0, 0])[0] - clip.x0
-                    cwidth = (span0.get("bbox", [0, 0, 0, 0])[2] - span0.get("bbox", [0, 0, 0, 0])[0]) / len(span0["text"])
-                    if cwidth == 0.0:
-                        cwidth = span0.get("size", 12) * 0.5
-                    text = " " * int(round(dist / cwidth)) + text
-
-                out_string += text
-            
-            if not code:
-                out_string += "\n"
-            if len(spans) > 30:
-                elapsed = profiler.end_timer(f'write_text_long_line_{int(lrect.y0)}')
-                if elapsed and elapsed > 0.001:
-                    print(f"[perf] long line at y={lrect.y0} took {elapsed:.6f}s with {len(spans)} spans")
-        
-        out_string += "\n"
-        if code:
-            out_string += "```\n"
-            code = False
-        out_string += "\n\n"
-        
-        return out_string.replace(" \n", "\n").replace("  ", " ").replace("\n\n\n", "\n\n")
-
-    def get_metadata(doc, pno):
+    def get_metadata(doc: 'pymupdf.Document', pno: int) -> Dict[str, Any]:
         """Get document metadata for a specific page."""
         meta = doc.metadata.copy()
         meta["file_path"] = FILENAME
@@ -1563,7 +1411,7 @@ def to_markdown(
         meta["page"] = pno + 1
         return meta
 
-    def sort_words(words: list) -> list:
+    def sort_words(words: List[Tuple[float, float, float, float, str, int]]) -> List[Tuple[float, float, float, float, str, int]]:
         """Reorder words in lines."""
         if not words:
             return []
@@ -1584,17 +1432,17 @@ def to_markdown(
         return nwords
 
     # Main processing logic
-    if page_chunks is False:
-        document_output = ""
-    else:
+    if page_chunks is True:
         document_output = []
-
+    
     # Read the Table of Contents
     toc = doc.get_toc()
 
     if show_progress:
         print(f"Processing {FILENAME}...")
-        pages = ProgressBar(pages) if not page_chunks else pages
+        iterable_pages = ProgressBar(pages) if not page_chunks else pages
+    else:
+        iterable_pages = pages
 
     # Check if any pages likely have tables
     has_tables = False
@@ -1606,98 +1454,74 @@ def to_markdown(
                     break
         except Exception:
             has_tables = False  # If table detection fails, assume no tables
-    
-    # Handle parallel processing for large documents (including those with tables)
-    if len(pages) > batch_size and not page_chunks:
+
+    # Unified processing logic for both sequential and parallel
+    all_results = []
+    use_parallel = len(pages) > 1 and not page_chunks
+
+    if use_parallel:
         print(f"Using parallel processing for {len(pages)} pages...")
-        # Split pages into batches
-        page_batches = []
-        for i in range(0, len(pages), batch_size):
-            batch = pages[i:i + batch_size]
-            page_batches.append(batch)
-        
-        # Prepare arguments for each batch (defer tables for parallel processing)
         doc_args = (margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS)
-        batch_args = [(FILENAME, batch, doc_args, get_page_output, page_separators) for batch in page_batches]
         
-        # Process batches in parallel with deferred table processing
+        from functools import partial
+        worker_func = partial(process_page_worker, doc_args=doc_args, page_separators=page_separators)
+
         with profiler.time_block('parallel_page_processing'):
-            all_results = []
-            with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-                future_to_batch = {executor.submit(process_page_batch, args): args for args in batch_args}
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=num_workers,
+                initializer=init_worker,
+                initargs=(FILENAME,)
+            ) as executor:
+                all_results = list(executor.map(worker_func, pages))
+    else:
+        print(f"Using sequential processing for {len(pages)} pages...")
+        for pno in iterable_pages:
+            try:
+                parms = get_page_output(doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS, page_separators, defer_tables=True)
+                all_results.append((pno, parms))
+            except Exception as e:
+                print(f"Error processing page {pno}: {e}")
+                all_results.append((pno, None))
 
-                for future in concurrent.futures.as_completed(future_to_batch):
-                    try:
-                        batch_results = future.result()
-                        all_results.extend(batch_results)
-                    except Exception as e:
-                        print(f"Error processing batch: {e}")
-                        continue
+    # Sort results by page number to ensure order is always correct
+    all_results.sort(key=lambda x: x[0])
 
-        # Sort results by page number
-        all_results.sort(key=lambda x: x[0])
+    # Process deferred tables sequentially to avoid race conditions, for both modes
+    if has_tables or not use_parallel: # Always run for sequential, or if tables found in parallel
+        print("Processing tables sequentially...")
+        all_results = process_deferred_tables(all_results, doc)
 
-        # Process deferred tables sequentially to avoid race conditions
-        if has_tables:
-            print("Processing tables sequentially to avoid race conditions...")
-            all_results = process_deferred_tables(all_results, doc)
-
-        # Get the full document markdown once from C function
+    # Assemble final output
+    if not page_chunks:
         try:
             with profiler.time_block('c_to_markdown_call'):
-                full_document_md = c_to_markdown(FILENAME) if pages else ""
-            document_output += full_document_md
+                if pages:
+                    status = c_to_markdown(FILENAME, output_path)
+                    if status != 0:
+                        print(f"C to_markdown failed with status {status}")
         except Exception as e:
             print(f"Warning: Could not get full document markdown: {e}")
-            document_output = ""
+            with open(output_path, "w") as f:
+                f.write("")
 
-        # Add content from each page
+        python_part = ""
         with profiler.time_block('assemble_page_results'):
             for pno, parms in all_results:
                 if parms is not None:
-                    document_output += parms.md_string
-
-        return document_output
-    
-    # Sequential processing for smaller documents or page chunks
-    print(f"Using sequential processing for {len(pages)} pages...")
-
-    # Sequential processing for smaller documents or page chunks
-    try:
-        # Get the full document markdown once from C function (for non-chunked output)
-        full_document_md = c_to_markdown(FILENAME) if pages and not page_chunks else ""
-    except Exception as e:
-        print(f"Warning: Could not get full document markdown: {e}")
-        full_document_md = ""
-
-    # Global table tracking for sequential processing
-    global_written_tables = []
-    
-    for pno in pages:
-        try:
-            # For sequential processing, don't defer tables
-            parms = get_page_output(doc, pno, margins, textflags, FILENAME, IGNORE_IMAGES, IGNORE_GRAPHICS, page_separators, defer_tables=False)
-            
-            # Synchronize table state for sequential processing
-            if hasattr(parms, 'written_tables') and global_written_tables:
-                # Merge previously written tables into current page params
-                parms.written_tables.extend([t for t in global_written_tables if t not in parms.written_tables])
+                    python_part += parms.md_string
         
-            if page_chunks is False:
-                # For non-chunked output, only add the full markdown once (for the first page)
-                if pno == pages[0]:
-                    document_output += full_document_md
-                # Add tables and images from this page
-                document_output += parms.md_string
-                
-                # Update global table tracking
-                if hasattr(parms, 'written_tables'):
-                    global_written_tables.extend([t for t in parms.written_tables if t not in global_written_tables])
-            else:
-                # For page chunks, create page-specific output
+        # Clean the final Python-generated markdown part
+        python_part = cleanup_markdown_text(python_part)
+
+        with open(output_path, "a", encoding="utf-8") as f:
+            f.write("\n---TABLES---\n")
+            f.write(python_part)
+        return
+    else:  # page_chunks is True
+        for pno, parms in all_results:
+            if parms:
                 page_tocs = [t for t in toc if t[-1] == pno + 1]
                 metadata = get_metadata(doc, pno)
-                
                 document_output.append({
                     "metadata": metadata,
                     "toc_items": page_tocs,
@@ -1707,28 +1531,16 @@ def to_markdown(
                     "text": parms.md_string,
                     "words": parms.words,
                 })
-            
-            del parms
-            
-        except Exception as e:
-            print(f"Error processing page {pno}: {e}")
-            if page_chunks:
-                # Add empty page chunk for failed pages
+            else:
                 document_output.append({
                     "metadata": get_metadata(doc, pno),
-                    "toc_items": [],
-                    "tables": [],
-                    "images": [],
-                    "graphics": [],
-                    "text": f"Error processing page {pno + 1}: {str(e)}",
-                    "words": [],
+                    "toc_items": [], "tables": [], "images": [], "graphics": [],
+                    "text": f"Error processing page {pno + 1}", "words": [],
                 })
-            continue
-
-    return document_output
+        return document_output
 
 
-def extract_images_on_page_simple(page, parms, image_size_limit):
+def extract_images_on_page_simple(page: 'pymupdf.Page', parms: 'Parameters', image_size_limit: float) -> List[Dict[str, Any]]:
     """Extract images on page, ignoring images contained in some other one (simplified mechanism)."""
     img_info = page.get_image_info()
     for i in range(len(img_info)):
@@ -1752,7 +1564,7 @@ def extract_images_on_page_simple(page, parms, image_size_limit):
     return img_info
 
 
-def filter_small_images(page, parms, image_size_limit):
+def filter_small_images(page: 'pymupdf.Page', parms: 'Parameters', image_size_limit: float) -> List[Dict[str, Any]]:
     """Filter out small images based on size limit."""
     img_info = []
     for item in page.get_image_info():
@@ -1767,7 +1579,7 @@ def filter_small_images(page, parms, image_size_limit):
     return img_info
 
 
-def extract_images_on_page_simple_drop(page, parms, image_size_limit):
+def extract_images_on_page_simple_drop(page: 'pymupdf.Page', parms: 'Parameters', image_size_limit: float) -> List[Dict[str, Any]]:
     """Extract images with size filtering and overlap removal."""
     img_info = filter_small_images(page, parms, image_size_limit)
 
@@ -1801,7 +1613,7 @@ if __name__ == "__main__":
         filename = sys.argv[1]
         output_name = pathlib.Path(sys.argv[2])
     except IndexError:
-        print(f"Usage:\npython {os.path.basename(__file__)} input.pdf")
+        print(f"Usage:\npython {os.path.basename(__file__)} input.pdf output.md")
         sys.exit()
 
     t0 = time.perf_counter()  # start a timer
@@ -1809,7 +1621,7 @@ if __name__ == "__main__":
     doc = pymupdf.open(filename)  # open input file
     parms = sys.argv[2:]  # contains ["-pages", "PAGES"] or empty list
     pages = range(doc.page_count)  # default page range
-    if len(parms) == 2 and parms[0] == "-pages":  # page sub-selection given
+    if len(parms) > 1 and parms[0] == "-pages":  # page sub-selection given
         pages = []  # list of desired page numbers
 
         # replace any variable "N" by page count
@@ -1830,22 +1642,19 @@ if __name__ == "__main__":
     
     # get the markdown string with performance improvements
     profiler.start_timer('total_to_markdown')
-    md_string = to_markdown(
+    to_markdown(
         doc,
+        output_path=str(output_name),
         pages=pages,
         batch_size=16,  # Process 16 pages per batch
         num_workers=min(cpu_count(), 16),  # Limit to 16 workers max
     )
     profiler.end_timer('total_to_markdown')
     
-    FILENAME = doc.name
-    # output to a text file with extension ".md"
-    profiler.start_timer('file_output')
-    pathlib.Path(output_name).write_bytes(md_string.encode())
-    profiler.end_timer('file_output')
-    
     t1 = time.perf_counter()  # stop timer
-    print(f"Markdown creation time for {FILENAME=} {round(t1-t0,2)} sec.")
+    print(f"Markdown creation time for {doc.name=} {round(t1-t0,2)} sec.")
     
     # Print performance report
     profiler.print_report()
+
+

@@ -11,10 +11,11 @@ CFLAGS = -std=c99 -Wall -Wextra -O3 -march=native -mtune=native -ffast-math \
 LIBS = -lmupdf -lm -pthread
 
 # Source files
-MAIN_SOURCE = to_md_standalone.c
-SOURCES = get_raw_lines.c multicolumn.c
+MAIN_SOURCE = to_md.c
+SOURCES = get_raw_lines.c multicolumn.c improved_table_detection.c
 OBJECTS = $(SOURCES:.c=.o)
 TARGET = to_md
+TABLE_TEST = test_table_detection
 
 # MuPDF paths (adjust these based on your system)
 MUPDF_INCLUDE = /usr/include/mupdf
@@ -51,6 +52,12 @@ $(TARGET): $(OBJECTS) $(MAIN_SOURCE)
 	@echo "Executable: ./$(TARGET)"
 	@ls -lh $(TARGET)
 
+# Table detection test program
+$(TABLE_TEST): improved_table_detection.o
+	@echo "Building table detection test program..."
+	$(CC) $(FULL_CFLAGS) -o $(TABLE_TEST) test_table_detection.c improved_table_detection.o $(FULL_LDFLAGS)
+	@echo "✓ Table detection test program built successfully!"
+
 # Debug build
 debug: CFLAGS = -std=c99 -Wall -Wextra -g -O0 -DDEBUG -DHAVE_MUPDF
 debug: clean $(TARGET)
@@ -59,7 +66,7 @@ debug: clean $(TARGET)
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(TARGET) $(TABLE_TEST)
 	@echo "Clean completed"
 
 # Test the build
@@ -81,6 +88,16 @@ test: $(TARGET)
 		./$(TARGET); \
 	fi
 
+# Test table detection
+test-table: $(TABLE_TEST)
+	@echo "Testing table detection..."
+	@if [ -f "test_table.pdf" ]; then \
+		echo "Testing with test_table.pdf..."; \
+		./$(TABLE_TEST) test_table.pdf 0; \
+	else \
+		echo "⚠ No test table PDF found"; \
+	fi
+
 # Install to system (optional)
 install: $(TARGET)
 	@echo "Installing $(TARGET) to /usr/local/bin..."
@@ -100,7 +117,7 @@ benchmark: $(TARGET)
 		echo "Benchmarking with ../acme.pdf..."; \
 		time ./$(TARGET) ../acme.pdf benchmark_output.md; \
 		if [ -f "benchmark_output.md" ]; then \
-			echo "Output size: $$(wc -c < benchmark_output.md) bytes"; \
+			echo "Output size: $(wc -c < benchmark_output.md) bytes"; \
 			rm -f benchmark_output.md; \
 		fi \
 	else \
@@ -110,13 +127,14 @@ benchmark: $(TARGET)
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all       - Build the to_md executable (default)"
-	@echo "  debug     - Build with debug symbols and no optimization"
-	@echo "  clean     - Remove all build artifacts"
-	@echo "  test      - Test the built executable"
-	@echo "  benchmark - Run performance benchmark"
-	@echo "  install   - Install to /usr/local/bin (requires sudo)"
-	@echo "  uninstall - Remove from /usr/local/bin (requires sudo)"
-	@echo "  help      - Show this help message"
+	@echo "  all        - Build the to_md executable (default)"
+	@echo "  debug      - Build with debug symbols and no optimization"
+	@echo "  clean      - Remove all build artifacts"
+	@echo "  test       - Test the built executable"
+	@echo "  test-table - Test the improved table detection"
+	@echo "  benchmark  - Run performance benchmark"
+	@echo "  install    - Install to /usr/local/bin (requires sudo)"
+	@echo "  uninstall  - Remove from /usr/local/bin (requires sudo)"
+	@echo "  help       - Show this help message"
 
-.PHONY: all debug clean test install uninstall benchmark help
+.PHONY: all debug clean test test-table install uninstall benchmark help
