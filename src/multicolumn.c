@@ -17,15 +17,13 @@
  * License GNU Affero GPL 3.0
  */
 
+#include "../include/multicolumn.h"
+
+#include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
-#include <ctype.h>
-
-#include "mupdf/fitz.h"
-#include "../include/improved_table_detection.h"
-#include "../include/multicolumn.h"
 
 #define MAX_RECTS 10000
 #define MAX_PATHS 1000
@@ -34,20 +32,20 @@
 
 typedef struct
 {
-    fz_rect *rects;
+    fz_rect* rects;
     int count;
     int capacity;
 } rect_list_t;
 
 typedef struct
 {
-    char *key;
+    char* key;
     int value;
 } cache_entry_t;
 
 typedef struct
 {
-    cache_entry_t *entries;
+    cache_entry_t* entries;
     int count;
     int capacity;
 } bbox_cache_t;
@@ -58,13 +56,13 @@ typedef struct
 typedef struct
 {
     fz_rect bbox;
-    char *text;
+    char* text;
 } cell_t;
 
 // Represents a row of cells
 typedef struct
 {
-    cell_t *cells;
+    cell_t* cells;
     int cell_count;
 } row_t;
 
@@ -72,7 +70,7 @@ typedef struct
 typedef struct
 {
     fz_rect bbox;
-    row_t *rows;
+    row_t* rows;
     int row_count;
 } table_t;
 
@@ -81,14 +79,12 @@ static int fz_rect_eq(fz_rect a, fz_rect b)
     return (a.x0 == b.x0 && a.y0 == b.y0 && a.x1 == b.x1 && a.y1 == b.y1);
 }
 
-static int is_white(const char *text)
+static int is_white(const char* text)
 {
-    if (!text)
-        return 1;
+    if (!text) return 1;
     while (*text)
     {
-        if (!isspace((unsigned char)*text))
-            return 0;
+        if (!isspace((unsigned char)*text)) return 0;
         text++;
     }
     return 1;
@@ -96,10 +92,8 @@ static int is_white(const char *text)
 
 static fz_rect fz_rect_union_custom(fz_rect a, fz_rect b)
 {
-    if (fz_is_empty_rect(a))
-        return b;
-    if (fz_is_empty_rect(b))
-        return a;
+    if (fz_is_empty_rect(a)) return b;
+    if (fz_is_empty_rect(b)) return a;
     fz_rect result;
     result.x0 = fz_min(a.x0, b.x0);
     result.y0 = fz_min(a.y0, b.y0);
@@ -144,7 +138,7 @@ static fz_rect fz_rect_add_delta_custom(fz_rect r, float dx0, float dy0, float d
     return result;
 }
 
-static int intersects_bboxes_rect(fz_rect bb, fz_rect *bboxes, int bbox_count)
+int intersects_bboxes_rect(fz_rect bb, fz_rect* bboxes, int bbox_count)
 {
     for (int i = 0; i < bbox_count; i++)
     {
@@ -156,7 +150,7 @@ static int intersects_bboxes_rect(fz_rect bb, fz_rect *bboxes, int bbox_count)
     return 0;
 }
 
-static int in_bbox_rect(fz_rect bb, fz_rect *bboxes, int bbox_count)
+static int in_bbox_rect(fz_rect bb, fz_rect* bboxes, int bbox_count)
 {
     for (int i = 0; i < bbox_count; i++)
     {
@@ -168,12 +162,13 @@ static int in_bbox_rect(fz_rect bb, fz_rect *bboxes, int bbox_count)
     return 0;
 }
 
-static int in_bbox_using_cache_rect(fz_rect bb, fz_rect *bboxes, int bbox_count, bbox_cache_t *cache)
+static int in_bbox_using_cache_rect(fz_rect bb, fz_rect* bboxes, int bbox_count,
+                                    bbox_cache_t* cache)
 {
     // Create cache key (simplified - using bbox coordinates)
     char cache_key[256];
-    snprintf(cache_key, sizeof(cache_key), "%.3f_%.3f_%.3f_%.3f_%p",
-             bb.x0, bb.y0, bb.x1, bb.y1, (void *)bboxes);
+    snprintf(cache_key, sizeof(cache_key), "%.3f_%.3f_%.3f_%.3f_%p", bb.x0, bb.y0, bb.x1, bb.y1,
+             (void*)bboxes);
 
     // Check cache
     for (int i = 0; i < cache->count; i++)
@@ -209,17 +204,15 @@ static fz_rect fz_rect_add_delta(fz_rect r, float dx0, float dy0, float dx1, flo
     return result;
 }
 
-static int can_extend(fz_rect temp, fz_rect bb, fz_rect *bboxlist, int bboxlist_count,
-                      int *null_flags, fz_rect *vert_bboxes, int vert_count)
+static int can_extend(fz_rect temp, fz_rect bb, fz_rect* bboxlist, int bboxlist_count,
+                      int* null_flags, fz_rect* vert_bboxes, int vert_count)
 {
     for (int i = 0; i < bboxlist_count; i++)
     {
-        if (null_flags && null_flags[i])
-            continue; // Skip removed items
+        if (null_flags && null_flags[i]) continue; // Skip removed items
 
         fz_rect b = bboxlist[i];
-        if (fz_rect_eq(b, bb))
-            continue; // Same as bb
+        if (fz_rect_eq(b, bb)) continue; // Same as bb
 
         fz_rect intersect = fz_rect_intersect_custom(temp, b);
         if (!fz_is_empty_rect(intersect) && intersects_bboxes_rect(temp, vert_bboxes, vert_count))
@@ -234,40 +227,34 @@ static int can_extend(fz_rect temp, fz_rect bb, fz_rect *bboxlist, int bboxlist_
     return 1;
 }
 
-static int compare_rects_by_bottom_left(const void *a, const void *b)
+static int compare_rects_by_bottom_left(const void* a, const void* b)
 {
-    const fz_rect *ra = (const fz_rect *)a;
-    const fz_rect *rb = (const fz_rect *)b;
+    const fz_rect* ra = (const fz_rect*)a;
+    const fz_rect* rb = (const fz_rect*)b;
 
-    if (ra->y1 != rb->y1)
-        return (ra->y1 < rb->y1) ? -1 : 1;
-    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1
-                                                      : 0;
+    if (ra->y1 != rb->y1) return (ra->y1 < rb->y1) ? -1 : 1;
+    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1 : 0;
 }
 
-static int compare_rects_by_top_left(const void *a, const void *b)
+static int compare_rects_by_top_left(const void* a, const void* b)
 {
-    const fz_rect *ra = (const fz_rect *)a;
-    const fz_rect *rb = (const fz_rect *)b;
+    const fz_rect* ra = (const fz_rect*)a;
+    const fz_rect* rb = (const fz_rect*)b;
 
-    if (ra->y0 != rb->y0)
-        return (ra->y0 < rb->y0) ? -1 : 1;
-    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1
-                                                      : 0;
+    if (ra->y0 != rb->y0) return (ra->y0 < rb->y0) ? -1 : 1;
+    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1 : 0;
 }
 
-static int compare_rects_by_x0(const void *a, const void *b)
+static int compare_rects_by_x0(const void* a, const void* b)
 {
-    const fz_rect *ra = (const fz_rect *)a;
-    const fz_rect *rb = (const fz_rect *)b;
-    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1
-                                                      : 0;
+    const fz_rect* ra = (const fz_rect*)a;
+    const fz_rect* rb = (const fz_rect*)b;
+    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1 : 0;
 }
 
-static void clean_nblocks(fz_rect *nblocks, int *count)
+static void clean_nblocks(fz_rect* nblocks, int* count)
 {
-    if (*count < 2)
-        return;
+    if (*count < 2) return;
 
     // 1. Remove any duplicate blocks
     for (int i = *count - 1; i > 0; i--)
@@ -283,8 +270,7 @@ static void clean_nblocks(fz_rect *nblocks, int *count)
         }
     }
 
-    if (*count == 0)
-        return;
+    if (*count == 0) return;
 
     // 2. Repair sequence in special cases:
     // consecutive bboxes with almost same bottom value are sorted ascending by x-coordinate
@@ -313,12 +299,12 @@ static void clean_nblocks(fz_rect *nblocks, int *count)
     }
 }
 
-static void join_rects_phase1(fz_rect *bboxes, int *count)
+static void join_rects_phase1(fz_rect* bboxes, int* count)
 {
     // Joins any rectangles that "touch" each other
     fz_rect delta = {0.0f, 0.0f, 0.0f, 10.0f}; // allow this gap below
 
-    fz_rect *prects = malloc(*count * sizeof(fz_rect));
+    fz_rect* prects = malloc(*count * sizeof(fz_rect));
     memcpy(prects, bboxes, *count * sizeof(fz_rect));
     int prect_count = *count;
 
@@ -334,7 +320,8 @@ static void join_rects_phase1(fz_rect *bboxes, int *count)
             repeat = 0;
             for (int i = prect_count - 1; i > 0; i--)
             {
-                fz_rect test_rect = fz_rect_add_delta_custom(prect0, delta.x0, delta.y0, delta.x1, delta.y1);
+                fz_rect test_rect =
+                    fz_rect_add_delta_custom(prect0, delta.x0, delta.y0, delta.x1, delta.y1);
                 if (fz_rect_intersects_custom(test_rect, prects[i]))
                 {
                     prect0 = fz_rect_union_custom(prect0, prects[i]);
@@ -363,9 +350,10 @@ static void join_rects_phase1(fz_rect *bboxes, int *count)
     free(prects);
 }
 
-static void join_rects_phase2(fz_rect *bboxes, int *count)
+static void join_rects_phase2(fz_rect* bboxes, int* count)
 {
-    // Increase the width of each text block so that small left or right border differences are removed
+    // Increase the width of each text block so that small left or right border differences are
+    // removed
 
     for (int i = 0; i < *count; i++)
     {
@@ -398,10 +386,9 @@ static void join_rects_phase2(fz_rect *bboxes, int *count)
     // Sort by left, top
     qsort(bboxes, *count, sizeof(fz_rect), compare_rects_by_top_left);
 
-    if (*count == 0)
-        return;
+    if (*count == 0) return;
 
-    fz_rect *new_rects = malloc(*count * sizeof(fz_rect));
+    fz_rect* new_rects = malloc(*count * sizeof(fz_rect));
     new_rects[0] = bboxes[0];
     int new_count = 1;
 
@@ -435,29 +422,26 @@ typedef struct
     float sort_x;
 } sort_rect_t;
 
-static int compare_sort_rects(const void *a, const void *b)
+static int compare_sort_rects(const void* a, const void* b)
 {
-    const sort_rect_t *sa = (const sort_rect_t *)a;
-    const sort_rect_t *sb = (const sort_rect_t *)b;
+    const sort_rect_t* sa = (const sort_rect_t*)a;
+    const sort_rect_t* sb = (const sort_rect_t*)b;
 
-    if (sa->sort_y != sb->sort_y)
-        return (sa->sort_y < sb->sort_y) ? -1 : 1;
-    return (sa->sort_x < sb->sort_x) ? -1 : (sa->sort_x > sb->sort_x) ? 1
-                                                                      : 0;
+    if (sa->sort_y != sb->sort_y) return (sa->sort_y < sb->sort_y) ? -1 : 1;
+    return (sa->sort_x < sb->sort_x) ? -1 : (sa->sort_x > sb->sort_x) ? 1 : 0;
 }
 
-static int compare_rects_by_x1_desc(const void *a, const void *b)
+static int compare_rects_by_x1_desc(const void* a, const void* b)
 {
-    const fz_rect *ra = (const fz_rect *)a;
-    const fz_rect *rb = (const fz_rect *)b;
-    return (rb->x1 < ra->x1) ? -1 : (rb->x1 > ra->x1) ? 1
-                                                      : 0; // Descending order
+    const fz_rect* ra = (const fz_rect*)a;
+    const fz_rect* rb = (const fz_rect*)b;
+    return (rb->x1 < ra->x1) ? -1 : (rb->x1 > ra->x1) ? 1 : 0; // Descending order
 }
 
-static void join_rects_phase3(fz_rect *bboxes, int *count,
-                              fz_rect *path_rects, int path_count, bbox_cache_t *cache)
+static void join_rects_phase3(fz_rect* bboxes, int* count, fz_rect* path_rects, int path_count,
+                              bbox_cache_t* cache)
 {
-    fz_rect *prects = malloc(*count * sizeof(fz_rect));
+    fz_rect* prects = malloc(*count * sizeof(fz_rect));
     memcpy(prects, bboxes, *count * sizeof(fz_rect));
     int prect_count = *count;
 
@@ -538,7 +522,7 @@ static void join_rects_phase3(fz_rect *bboxes, int *count,
     free(prects);
 
     // Sorting sequence - EXACT replica of Python logic
-    sort_rect_t *sort_rects = malloc(*count * sizeof(sort_rect_t));
+    sort_rect_t* sort_rects = malloc(*count * sizeof(sort_rect_t));
 
     for (int i = 0; i < *count; i++)
     {
@@ -546,15 +530,14 @@ static void join_rects_phase3(fz_rect *bboxes, int *count,
         sort_rects[i].rect = box;
 
         // Find left rectangles that overlap vertically
-        fz_rect *left_rects = malloc(*count * sizeof(fz_rect));
+        fz_rect* left_rects = malloc(*count * sizeof(fz_rect));
         int left_count = 0;
 
         for (int j = 0; j < *count; j++)
         {
             fz_rect r = bboxes[j];
             if (r.x1 < box.x0 &&
-                ((box.y0 <= r.y0 && r.y0 <= box.y1) ||
-                 (box.y0 <= r.y1 && r.y1 <= box.y1)))
+                ((box.y0 <= r.y0 && r.y0 <= box.y1) || (box.y0 <= r.y1 && r.y1 <= box.y1)))
             {
                 left_rects[left_count++] = r;
             }
@@ -592,27 +575,21 @@ static void join_rects_phase3(fz_rect *bboxes, int *count,
     // In full implementation, would separate shadow_rects
 }
 
-static int compare_rects_by_top_left_fz(const void *a, const void *b)
+static int compare_rects_by_top_left_fz(const void* a, const void* b)
 {
-    const fz_rect *ra = (const fz_rect *)a;
-    const fz_rect *rb = (const fz_rect *)b;
-    if (ra->y0 != rb->y0)
-        return (ra->y0 < rb->y0) ? -1 : 1;
-    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1
-                                                      : 0;
+    const fz_rect* ra = (const fz_rect*)a;
+    const fz_rect* rb = (const fz_rect*)b;
+    if (ra->y0 != rb->y0) return (ra->y0 < rb->y0) ? -1 : 1;
+    return (ra->x0 < rb->x0) ? -1 : (ra->x0 > rb->x0) ? 1 : 0;
 }
 
-static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number,
-                              float footer_margin, float header_margin,
-                              int no_image_text, fz_stext_page *textpage_param,
-                              fz_rect *paths, int path_count,
-                              fz_rect *avoid, int avoid_count,
-                              int ignore_images,
-                              int *result_count)
+static fz_rect* _column_boxes(fz_context* ctx, fz_document* doc, int page_number,
+                              float footer_margin, float header_margin, int no_image_text,
+                              fz_stext_page* textpage_param, fz_rect* paths, int path_count,
+                              fz_rect* avoid, int avoid_count, int ignore_images, int* result_count)
 {
-
     // Load the page
-    fz_page *page = fz_load_page(ctx, doc, page_number);
+    fz_page* page = fz_load_page(ctx, doc, page_number);
 
     // Compute relevant page area
     fz_rect page_rect = fz_bound_page(ctx, page);
@@ -621,7 +598,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     clip.y0 += header_margin; // Remove header area
 
     // Get paths if not provided
-    fz_rect *path_rects = malloc(MAX_PATHS * sizeof(fz_rect));
+    fz_rect* path_rects = malloc(MAX_PATHS * sizeof(fz_rect));
     int path_rect_count = 0;
 
     if (paths == NULL)
@@ -656,7 +633,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     qsort(path_rects, path_rect_count, sizeof(fz_rect), compare_rects_by_top_left_fz);
 
     // Image bboxes
-    fz_rect *img_bboxes = NULL;
+    fz_rect* img_bboxes = NULL;
     int img_bbox_count = 0;
     if (avoid != NULL && avoid_count > 0)
     {
@@ -668,7 +645,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     }
 
     // Non-horizontal text boxes
-    fz_rect *vert_bboxes = malloc(MAX_RECTS * sizeof(fz_rect));
+    fz_rect* vert_bboxes = malloc(MAX_RECTS * sizeof(fz_rect));
     int vert_bbox_count = 0;
 
     // Get images on page
@@ -679,7 +656,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     }
 
     // Create textpage if not provided
-    fz_stext_page *tp = textpage_param;
+    fz_stext_page* tp = textpage_param;
     int temp_textpage = 0;
 
     if (!tp)
@@ -690,14 +667,13 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     }
 
     // Extract text blocks
-    fz_rect *bboxes = malloc(MAX_BLOCKS * sizeof(fz_rect));
+    fz_rect* bboxes = malloc(MAX_BLOCKS * sizeof(fz_rect));
     int bbox_count = 0;
 
     // Process text blocks - EXACT replica of Python logic
-    for (fz_stext_block *block = tp->first_block; block; block = block->next)
+    for (fz_stext_block* block = tp->first_block; block; block = block->next)
     {
-        if (block->type != FZ_STEXT_BLOCK_TEXT)
-            continue;
+        if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
 
         fz_rect block_bbox = block->bbox;
         fz_rect bbox = block_bbox;
@@ -709,9 +685,8 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
         }
 
         // Confirm first line to be horizontal
-        fz_stext_line *line0 = block->u.t.first_line;
-        if (!line0)
-            continue;
+        fz_stext_line* line0 = block->u.t.first_line;
+        if (!line0) continue;
 
         if (fabs(1.0f - line0->dir.x) > 1e-3f)
         {                                          // Only (almost) horizontal text
@@ -720,13 +695,13 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
         }
 
         fz_rect srect = fz_empty_rect;
-        for (fz_stext_line *line = block->u.t.first_line; line; line = line->next)
+        for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
         {
             fz_rect lbbox = line->bbox;
 
             // Build text from spans to check if whitespace
             char text[10000] = "";
-            for (fz_stext_char *ch = line->first_char; ch; ch = ch->next)
+            for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
             {
                 char utf8[8];
                 int len = fz_runetochar(utf8, ch->c);
@@ -757,7 +732,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     }
 
     // Convert path_rects to rect for sorting
-    fz_rect *path_irects = malloc(path_rect_count * sizeof(fz_rect));
+    fz_rect* path_irects = malloc(path_rect_count * sizeof(fz_rect));
     for (int i = 0; i < path_rect_count; i++)
     {
         path_irects[i] = path_rects[i];
@@ -772,8 +747,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
         *result_count = 0;
         fz_drop_page(ctx, page);
         free(bboxes);
-        if (img_bboxes)
-            free(img_bboxes);
+        if (img_bboxes) free(img_bboxes);
         free(vert_bboxes);
         free(path_rects);
         free(path_irects);
@@ -781,7 +755,7 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
     }
 
     // Join bboxes to establish column structure - EXACT replica
-    fz_rect *nblocks = malloc(MAX_RECTS * sizeof(fz_rect));
+    fz_rect* nblocks = malloc(MAX_RECTS * sizeof(fz_rect));
     int nblock_count = 1;
     nblocks[0] = bboxes[0]; // Pre-fill with first bbox
 
@@ -815,7 +789,8 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
             }
 
             fz_rect temp = fz_rect_union_custom(bb, nbb);
-            check = can_extend(temp, nbb, nblocks, nblock_count, NULL, vert_bboxes, vert_bbox_count);
+            check =
+                can_extend(temp, nbb, nblocks, nblock_count, NULL, vert_bboxes, vert_bbox_count);
             if (check)
             {
                 best_j = j;
@@ -832,7 +807,8 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
         if (best_j >= 0)
         {
             fz_rect temp = fz_rect_union_custom(bb, nblocks[best_j]);
-            check = can_extend(temp, bb, &bboxes[i + 1], bbox_count - i - 1, NULL, vert_bboxes, vert_bbox_count);
+            check = can_extend(temp, bb, &bboxes[i + 1], bbox_count - i - 1, NULL, vert_bboxes,
+                               vert_bbox_count);
             if (check)
             {
                 nblocks[best_j] = temp;
@@ -882,35 +858,35 @@ static fz_rect *_column_boxes(fz_context *ctx, fz_document *doc, int page_number
 
     fz_drop_page(ctx, page);
     free(bboxes);
-    if (img_bboxes)
-        free(img_bboxes);
+    if (img_bboxes) free(img_bboxes);
     free(vert_bboxes);
     free(path_rects);
     free(path_irects);
 
     // Resize result to exact size
-    fz_rect *result = malloc(nblock_count * sizeof(fz_rect));
+    fz_rect* result = malloc(nblock_count * sizeof(fz_rect));
     memcpy(result, nblocks, nblock_count * sizeof(fz_rect));
     free(nblocks);
 
     return result;
 }
 
-fz_rect *column_boxes(const char *pdf_path, int page_number, int *table_count, ColumnBoxesOptions *opts)
+fz_rect* column_boxes(const char* pdf_path, int page_number, int* table_count,
+                      ColumnBoxesOptions* opts)
 {
-    fz_context *ctx = NULL;
-    fz_document *doc = NULL;
-    fz_rect *result = NULL;
+    fz_context* ctx = NULL;
+    fz_document* doc = NULL;
+    fz_rect* result = NULL;
     int result_count = 0;
 
     // Set defaults or use opts
     float footer_margin = opts ? opts->footer_margin : 0.0f;
     float header_margin = opts ? opts->header_margin : 0.0f;
     int no_image_text = opts ? opts->no_image_text : 0;
-    fz_stext_page *textpage_param = opts ? opts->textpage_param : NULL;
-    fz_rect *paths = opts ? opts->paths : NULL;
+    fz_stext_page* textpage_param = opts ? opts->textpage_param : NULL;
+    fz_rect* paths = opts ? opts->paths : NULL;
     int path_count = opts ? opts->path_count : 0;
-    fz_rect *avoid = opts ? opts->avoid : NULL;
+    fz_rect* avoid = opts ? opts->avoid : NULL;
     int avoid_count = opts ? opts->avoid_count : 0;
     int ignore_images = opts ? opts->ignore_images : 0;
 
@@ -923,45 +899,35 @@ fz_rect *column_boxes(const char *pdf_path, int page_number, int *table_count, C
     }
 
     ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
-    if (!ctx)
-        return NULL;
+    if (!ctx) return NULL;
 
     fz_try(ctx)
     {
         fz_register_document_handlers(ctx);
         doc = fz_open_document(ctx, pdf_path);
-        if (!doc)
-            fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
+        if (!doc) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
 
         int page_count = fz_count_pages(ctx, doc);
         if (page_number < 0 || page_number >= page_count)
             fz_throw(ctx, FZ_ERROR_GENERIC, "Page number out of range");
 
-        result = _column_boxes(ctx, doc, page_number,
-                               footer_margin, header_margin,
-                               no_image_text,
-                               textpage_param,
-                               paths, path_count,
-                               avoid, avoid_count,
-                               ignore_images,
+        result = _column_boxes(ctx, doc, page_number, footer_margin, header_margin, no_image_text,
+                               textpage_param, paths, path_count, avoid, avoid_count, ignore_images,
                                &result_count);
 
         fz_drop_document(ctx, doc);
     }
     fz_catch(ctx)
     {
-        if (doc)
-            fz_drop_document(ctx, doc);
-        if (result)
-            free(result);
+        if (doc) fz_drop_document(ctx, doc);
+        if (result) free(result);
         result = NULL;
         result_count = 0;
     }
 
     fz_drop_context(ctx);
 
-    if (table_count)
-        *table_count = result_count;
+    if (table_count) *table_count = result_count;
 
     return result;
 }

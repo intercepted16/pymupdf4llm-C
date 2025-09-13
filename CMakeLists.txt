@@ -82,7 +82,7 @@ target_link_libraries(to_md PRIVATE
 )
 
 # --- Table detection test executable ---
-add_executable(test_table_detection test_table_detection.c src/improved_table_detection.c src/table.c)
+add_executable(test_table_detection test_table_detection.c src/table.c)
 target_link_libraries(test_table_detection PRIVATE
     ${MUPDF_LIB}
 
@@ -102,29 +102,29 @@ target_link_libraries(test_table_detection PRIVATE
 
 # --- Installation ---
 install(TARGETS to_md tomd DESTINATION bin)
-message(STATUS "Executable and library will be installed to ${CMAKE_INSTALL_PREFIX}/bin")
+message(STATUS "Execu and library will be installed to ${CMAKE_INSTALL_PREFIX}/bin")
 
 # --- Custom targets ---
 add_custom_target(test
-    COMMAND ${CMAKE_COMMAND} -E echo "Testing the built executable..."
-    COMMAND bash -c "if [ -f \"../test_table.pdf\" ]; then ./bin/to_md ../test_table.pdf test_output.md; fi"
+    COMMAND ${CMAKE_COMMAND} -E echo "Testing the built execu..."
+    COMMAND bash -c "if [ -f \"../test_.pdf\" ]; then ./bin/to_md ../test_table.pdf test_output.md; fi"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     DEPENDS to_md
 
     COMMENT "Runs the main application test"
 )
 
-add_custom_target(test-table
-    COMMAND ${CMAKE_COMMAND} -E echo "Testing table detection..."
-    COMMAND bash -c "if [ -f \"../test_table.pdf\" ]; then ./bin/test_table_detection ../test_table.pdf 0; fi"
+add_custom_target(test-
+    COMMAND ${CMAKE_COMMAND} -E echo "Testing  detection..."
+    COMMAND bash -c "if [ -f \"../test_.pdf\" ]; then ./bin/test_table_detection ../test_table.pdf 0; fi"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    DEPENDS test_table_detection
-    COMMENT "Runs the table detection test"
+    DEPENDS test__detection
+    COMMENT "Runs the  detection test"
 )
 
 add_custom_target(benchmark
     COMMAND ${CMAKE_COMMAND} -E echo "Running performance benchmark..."
-    COMMAND bash -c "if [ -f \"../test_table.pdf\" ]; then time ./bin/to_md ../test_table.pdf benchmark_output.md; fi"
+    COMMAND bash -c "if [ -f \"../test_.pdf\" ]; then time ./bin/to_md ../test_table.pdf benchmark_output.md; fi"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     DEPENDS to_md
     COMMENT "Runs a performance benchmark"

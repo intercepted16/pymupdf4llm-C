@@ -57,10 +57,10 @@ RM = /home/linuxbrew/.linuxbrew/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/ab/to_md_pyx/to_md_c
+CMAKE_SOURCE_DIR = /home/ab/pymupdf4llm-C
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ab/to_md_pyx/to_md_c
+CMAKE_BINARY_DIR = /home/ab/pymupdf4llm-C
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -132,9 +132,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ab/to_md_pyx/to_md_c/CMakeFiles /home/ab/to_md_pyx/to_md_c//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/ab/pymupdf4llm-C/CMakeFiles /home/ab/pymupdf4llm-C//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/ab/to_md_pyx/to_md_c/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/ab/pymupdf4llm-C/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
@@ -214,17 +214,17 @@ test/fast:
 .PHONY : test/fast
 
 #=============================================================================
-# Target rules for targets named test-table
+# Target rules for targets named test-
 
 # Build rule for target.
-test-table: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test-table
-.PHONY : test-table
+test-: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test-
+.PHONY : test-
 
 # fast build rule for target.
-test-table/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test-table.dir/build.make CMakeFiles/test-table.dir/build
-.PHONY : test-table/fast
+test-/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/test-.dir/build.make CMakeFiles/test-.dir/build
+.PHONY : test-/fast
 
 #=============================================================================
 # Target rules for targets named benchmark
@@ -265,36 +265,6 @@ src/get_raw_lines.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/tomd.dir/build.make CMakeFiles/tomd.dir/src/get_raw_lines.c.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/to_md.dir/build.make CMakeFiles/to_md.dir/src/get_raw_lines.c.s
 .PHONY : src/get_raw_lines.c.s
-
-src/improved_table_detection.o: src/improved_table_detection.c.o
-.PHONY : src/improved_table_detection.o
-
-# target to build an object file
-src/improved_table_detection.c.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tomd.dir/build.make CMakeFiles/tomd.dir/src/improved_table_detection.c.o
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/to_md.dir/build.make CMakeFiles/to_md.dir/src/improved_table_detection.c.o
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_table_detection.dir/build.make CMakeFiles/test_table_detection.dir/src/improved_table_detection.c.o
-.PHONY : src/improved_table_detection.c.o
-
-src/improved_table_detection.i: src/improved_table_detection.c.i
-.PHONY : src/improved_table_detection.i
-
-# target to preprocess a source file
-src/improved_table_detection.c.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tomd.dir/build.make CMakeFiles/tomd.dir/src/improved_table_detection.c.i
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/to_md.dir/build.make CMakeFiles/to_md.dir/src/improved_table_detection.c.i
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_table_detection.dir/build.make CMakeFiles/test_table_detection.dir/src/improved_table_detection.c.i
-.PHONY : src/improved_table_detection.c.i
-
-src/improved_table_detection.s: src/improved_table_detection.c.s
-.PHONY : src/improved_table_detection.s
-
-# target to generate assembly for a file
-src/improved_table_detection.c.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/tomd.dir/build.make CMakeFiles/tomd.dir/src/improved_table_detection.c.s
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/to_md.dir/build.make CMakeFiles/to_md.dir/src/improved_table_detection.c.s
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_table_detection.dir/build.make CMakeFiles/test_table_detection.dir/src/improved_table_detection.c.s
-.PHONY : src/improved_table_detection.c.s
 
 src/multicolumn.o: src/multicolumn.c.o
 .PHONY : src/multicolumn.o
@@ -418,16 +388,13 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... benchmark"
 	@echo "... test"
-	@echo "... test-table"
+	@echo "... test-"
 	@echo "... test_table_detection"
 	@echo "... to_md"
 	@echo "... tomd"
 	@echo "... src/get_raw_lines.o"
 	@echo "... src/get_raw_lines.i"
 	@echo "... src/get_raw_lines.s"
-	@echo "... src/improved_table_detection.o"
-	@echo "... src/improved_table_detection.i"
-	@echo "... src/improved_table_detection.s"
 	@echo "... src/multicolumn.o"
 	@echo "... src/multicolumn.i"
 	@echo "... src/multicolumn.s"

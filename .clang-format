@@ -1,0 +1,9 @@
+BasedOnStyle: Google
+IndentWidth: 4        # spaces per indent level
+TabWidth: 4
+UseTab: Never
+BreakBeforeBraces: Allman   # braces on their own line
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: false
+SpacesBeforeTrailingComments: 1
+IndentCaseLabels: true

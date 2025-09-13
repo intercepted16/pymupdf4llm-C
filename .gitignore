@@ -2,6 +2,8 @@
 *.out
 *.log
 build/
+bin/
+Makefile
 __pycache__/
 *.so
 *.pyd
@@ -17,3 +19,5 @@ __pycache__/
 *.make
 *.cmake
 venv/**/
+CMakeFiles/
+CMakeCache.txt

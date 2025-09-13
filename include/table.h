@@ -3,7 +3,7 @@
 
 #include <mupdf/fitz.h>
 
-// Original function signature
+// Deprecated: original method of table detection
 extern int original_page_has_table(const char *pdf_path, int page_number);
 
 // Improved function signature

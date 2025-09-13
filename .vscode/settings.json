@@ -6,6 +6,10 @@
         "multicolumn.h": "c",
         "text.h": "c",
         "fitz.h": "c",
-        "get_raw_lines.h": "c"
-    }
+        "get_raw_lines.h": "c",
+        "table_extraction.h": "c",
+        "improved_table_detection.h": "c",
+        "table.h": "c"
+    },
+    "editor.defaultFormatter": "ms-vscode.cpptools"
 }
