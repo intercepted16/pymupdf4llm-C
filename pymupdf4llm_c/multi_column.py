@@ -1,26 +1,22 @@
-# === multi_column.py ===
-# Created: 2025-09-08
-# Purpose: Provides column_boxes() for detecting column bounding boxes in PDF pages using MuPDF and C extension.
-# Key Exports:
-#   - def column_boxes(...)
-# Interactions:
-#   - Used by: pymupdf_rag.py, other PDF processing scripts
-# Notes:
-#   - All rectangle arguments are strictly typed and normalized to pymupdf.Rect.
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
-from typing import List, Optional, Union, Any
-import pymupdf  # type: ignore
+if TYPE_CHECKING:
+    import pymupdf
+
 import ctypes
 
-pymupdf.TOOLS.unset_quad_corrections(True)
+import pymupdf  # type: ignore
+from globals import LIB_PATH
 
-lib = ctypes.CDLL("./lib/libtomd.so")
+pymupdf.TOOLS.unset_quad_corrections(True)  # type: ignore
 
-RectLike = Union[pymupdf.Rect, dict, tuple, list]
+lib = ctypes.CDLL(LIB_PATH)
 
-def _ensure_rects(rects: Optional[List[RectLike]]) -> List[pymupdf.Rect]:
-    """
-    Convert a list of rectangle-like objects (dicts, tuples, lists) to pymupdf.Rect.
+RectLike = Union["pymupdf.Rect", dict[str, Any], tuple[float, ...], list[float]]
+
+
+def _ensure_rects(rects: Optional[List[RectLike]]) -> List[Any]:
+    """Convert a list of rectangle-like objects (dicts, tuples, lists) to pymupdf.Rect.
     Accepts:
         - pymupdf.Rect
         - dict with 'bbox' key or x0/y0/x1/y1 keys
@@ -28,7 +24,7 @@ def _ensure_rects(rects: Optional[List[RectLike]]) -> List[pymupdf.Rect]:
     Returns:
         List of pymupdf.Rect
     """
-    result = []
+    result: List[Any] = []
     if not rects:
         return result
     for r in rects:
@@ -39,25 +35,25 @@ def _ensure_rects(rects: Optional[List[RectLike]]) -> List[pymupdf.Rect]:
                 result.append(pymupdf.Rect(*r["bbox"]))
             elif all(k in r for k in ("x0", "y0", "x1", "y1")):
                 result.append(pymupdf.Rect(r["x0"], r["y0"], r["x1"], r["y1"]))
-        elif isinstance(r, (tuple, list)) and len(r) == 4:
+        elif isinstance(r, (tuple, list)) and len(r) == 4:  # type: ignore
             result.append(pymupdf.Rect(*r))
         else:
             raise TypeError(f"Cannot convert {r} to pymupdf.Rect")
     return result
 
+
 def column_boxes(
     file_path: Union[str, bytes],
-    page: Any,
+    page: "pymupdf.Page",
     *,
     footer_margin: float = 50,
     header_margin: float = 50,
     no_image_text: bool = True,
     paths: Optional[List[RectLike]] = None,
     avoid: Optional[List[RectLike]] = None,
-    ignore_images: bool = False
-) -> List[pymupdf.Rect]:
-    """
-    Determine bounding boxes which wrap a column on the page.
+    ignore_images: bool = False,
+) -> List[Any]:
+    """Determine bounding boxes which wrap a column on the page.
 
     Args:
         file_path: Path to PDF file (str or bytes).
@@ -73,7 +69,9 @@ def column_boxes(
         List of pymupdf.Rect bounding boxes for columns.
     """
     # Ensure file_path is bytes
-    file_path_bytes: bytes = file_path.encode('utf-8') if isinstance(file_path, str) else file_path
+    file_path_bytes: bytes = (
+        file_path.encode("utf-8") if isinstance(file_path, str) else file_path
+    )
 
     result_count = ctypes.c_int()
 
@@ -81,15 +79,15 @@ def column_boxes(
     norm_paths: List[pymupdf.Rect] = _ensure_rects(paths)
     norm_avoid: List[pymupdf.Rect] = _ensure_rects(avoid)
 
-    def to_ctypes_flat(array: List[pymupdf.Rect]) -> tuple:
+    def to_ctypes_flat(array: List[Any]) -> tuple[Any, int]:
         if not array:
             return ctypes.POINTER(ctypes.c_float)(), 0
         flat_array = (ctypes.c_float * (len(array) * 4))()
         for i, r in enumerate(array):
-            flat_array[i*4 + 0] = r.x0
-            flat_array[i*4 + 1] = r.y0
-            flat_array[i*4 + 2] = r.x1
-            flat_array[i*4 + 3] = r.y1
+            flat_array[i * 4 + 0] = r.x0
+            flat_array[i * 4 + 1] = r.y0
+            flat_array[i * 4 + 2] = r.x1
+            flat_array[i * 4 + 3] = r.y1
         return ctypes.cast(flat_array, ctypes.POINTER(ctypes.c_float)), len(array)
 
     paths_ptr, path_count = to_ctypes_flat(norm_paths)
@@ -102,10 +100,12 @@ def column_boxes(
         ctypes.c_float,
         ctypes.c_float,
         ctypes.c_int,
-        ctypes.POINTER(ctypes.c_float), ctypes.c_int,
-        ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+        ctypes.POINTER(ctypes.c_float),
         ctypes.c_int,
-        ctypes.POINTER(ctypes.c_int)
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
     ]
     lib.column_boxes.restype = ctypes.POINTER(ctypes.c_float)
 
@@ -115,18 +115,20 @@ def column_boxes(
         float(footer_margin),
         float(header_margin),
         int(no_image_text),
-        paths_ptr, path_count,
-        avoid_ptr, avoid_count,
+        paths_ptr,
+        path_count,
+        avoid_ptr,
+        avoid_count,
         int(ignore_images),
-        ctypes.byref(result_count)
+        ctypes.byref(result_count),
     )
 
     bboxes: List[pymupdf.Rect] = []
     for i in range(result_count.value):
-        x0 = result[i*4 + 0]
-        y0 = result[i*4 + 1]
-        x1 = result[i*4 + 2]
-        y1 = result[i*4 + 3]
+        x0 = result[i * 4 + 0]
+        y0 = result[i * 4 + 1]
+        x1 = result[i * 4 + 2]
+        y1 = result[i * 4 + 3]
         bboxes.append(pymupdf.Rect(x0, y0, x1, y1))
         print(f"Detected bbox: {bboxes[-1]}")
 
@@ -135,30 +137,3 @@ def column_boxes(
         lib.free(result)
 
     return bboxes
-
-# OVERVIEW
-#
-# This file provides a robust, type-safe wrapper for column detection in PDF pages using MuPDF and a C extension.
-# All rectangle arguments are normalized to pymupdf.Rect for safety and compatibility.
-# The function signatures use modern Python type hints for clarity and maintainability.
-# Edge Cases:
-# - If paths/avoid contain dicts or tuples, they are converted to Rects.
-# - Raises TypeError if an unrecognized rectangle type is passed.
-# - Returns an empty list if no columns are detected.
-#
-# Future Improvements:
-# - Add runtime validation for page object type.
-# - Add more granular error handling for C extension failures.
-
-# === multi_column.py ===
-# Updated: 2025-09-08
-# Summary: Typed, robust column_boxes wrapper for MuPDF column detection.
-# Key Components:
-#   - column_boxes(): Main entry for column detection.
-#   - _ensure_rects(): Helper for rectangle normalization.
-# Dependencies:
-#   - Requires: pymupdf, ctypes, get_raw_markdown.so
-# Version History:
-#   v1.0 - Initial release with type safety and normalization.
-# Notes:
-#   - All rectangle inputs are normalized

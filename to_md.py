@@ -1,9 +1,18 @@
 import ctypes
+import os
 import sys
 import time
+from dotenv import load_dotenv
+
+load_dotenv(".env")
+
+LIB_PATH = os.getenv("PYMUPDF4LLM_C_LIB_PATH")
+if not LIB_PATH:
+    raise ValueError("Environment variable PYMUPDF4LLM_C_LIB_PATH not set")
 
 # load the library
-c_lib = ctypes.CDLL('./get_raw_markdown.so')
+
+c_lib = ctypes.CDLL(LIB_PATH)
 
 # declare argument types (optional but safer)
 c_lib.to_markdown.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
