@@ -15,8 +15,22 @@ def locate_and_extract_tables(
     defer_tables: bool,
     extract_words: bool,
 ):
-    """Locate and extract tables from a page.
-    Modifies the `parms` object in place.
+    """Locates and extracts tables from a page, modifying the `parms` object in place.
+
+    First, it checks if a table is likely to be on the page. If so, it uses
+    PyMuPDF's `find_tables` to locate them. If `defer_tables` is True, it
+    extracts the Markdown and cell data immediately for later processing.
+
+    Args:
+        parms: The Parameters object for the current page. This object is
+               modified in place.
+        doc: The pymupdf.Document object.
+        pno: The 0-based page number.
+        ignore_graphics: If True, graphical elements are ignored during table
+                         detection.
+        table_strategy: The strategy to use for `find_tables` (e.g., "lines_strict").
+        defer_tables: If True, table processing is deferred.
+        extract_words: If True, extract word-level information from table cells.
     """
     profiler.start_timer("locate_tables")
     if is_likely_table(doc.name, pno):
@@ -98,7 +112,23 @@ def output_tables(
     global_written_tables: Optional[List[int]] = None,
     extract_words: bool = False,
 ) -> str:
-    """Output tables above given text rectangle."""
+    """Generates Markdown for tables located above a given text rectangle.
+
+    This function iterates through the tables found on the page and outputs
+    them as Markdown if they are positioned above the `text_rect`.
+
+    Args:
+        parms: The Parameters object for the current page.
+        text_rect: An optional pymupdf.Rect. If provided, only tables
+                   above this rectangle are processed.
+        defer: If True, table processing is skipped.
+        global_written_tables: An optional list of table indices that have
+                               already been written.
+        extract_words: If True, extract word-level information from table cells.
+
+    Returns:
+        A string containing the Markdown for the processed tables.
+    """
     this_md = ""
     written_tables = (
         global_written_tables
@@ -155,7 +185,22 @@ def process_deferred_tables(
     doc: "pymupdf.Document",
     extract_words: bool = False,
 ) -> List[tuple[int, Optional["pymupdf_rag.Parameters"]]]:
-    """Process tables from all pages sequentially to avoid race conditions."""
+    """Processes tables that were deferred during initial page processing.
+
+    This function is called after all pages have been processed in parallel.
+    It iterates through the results and adds the Markdown for any deferred
+    tables to the final output.
+
+    Args:
+        all_page_results: A list of tuples, where each tuple contains the
+                          page number and the corresponding Parameters object.
+        doc: The pymupdf.Document object.
+        extract_words: If True, extract word-level information from table cells.
+
+    Returns:
+        The `all_page_results` list with the table Markdown added to the
+        `md_string` of the respective page Parameters.
+    """
     with profiler.time_block("process_deferred_tables"):
         global_written_tables = set()  # Use a set for efficient lookups
 

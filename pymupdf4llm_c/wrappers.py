@@ -17,9 +17,23 @@ def get_raw_lines(
     tolerance: int = 3,
     ignore_invisible: bool = True,
 ) -> List[Tuple["pymupdf.Rect", List[Dict[str, Any]]]]:
-    """C-backed get_raw_lines keeping the same Python signature.
+    """Extracts structured text lines from a PDF using the C library.
 
-    Returns: list of [Rect, [spans]] like the original Python version.
+    This function serves as a Python wrapper for the C function `get_raw_lines`.
+    It takes a PDF file path and other options, calls the C library to perform
+    the extraction, and then converts the C-level data structures back into
+    Python objects.
+
+    Args:
+        pdf_path: The file path to the PDF document.
+        clip: An optional `pymupdf.Rect` to specify a clipping area.
+        tolerance: The vertical tolerance for grouping spans into lines.
+        ignore_invisible: If True, ignore invisible text.
+
+    Returns:
+        A list of tuples, where each tuple represents a line and contains a
+        `pymupdf.Rect` for the line's bounding box and a list of span
+        dictionaries.
     """
     pdf_path_bytes = pdf_path.encode("utf-8")
     if not pdf_path_bytes:
@@ -60,7 +74,15 @@ def get_raw_lines(
 
 
 def to_markdown(pdf_path: str, output_path: str) -> int:
-    """C-backed to_markdown that writes to a file and returns a status."""
+    """Converts a PDF to Markdown using the C library and writes it to a file.
+
+    Args:
+        pdf_path: The file path to the input PDF document.
+        output_path: The file path for the output Markdown file.
+
+    Returns:
+        The status code returned by the C function (0 for success).
+    """
     pdf_path_bytes = pdf_path.encode("utf-8")
     output_path_bytes = output_path.encode("utf-8")
     if not pdf_path_bytes:
@@ -75,7 +97,15 @@ def to_markdown(pdf_path: str, output_path: str) -> int:
 
 
 def is_likely_table(pdf_path: str, page_number: int) -> int:
-    """Check if a page likely contains a table based on column detection."""
+    """Checks if a page is likely to contain a table using the C library.
+
+    Args:
+        pdf_path: The file path to the PDF document.
+        page_number: The 0-based page number to check.
+
+    Returns:
+        1 if a table is likely present, 0 if not, and -1 on error.
+    """
     pdf_path_bytes = pdf_path.encode("utf-8")
     if not pdf_path_bytes:
         raise ValueError("PDF path must be provided.")

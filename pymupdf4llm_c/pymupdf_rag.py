@@ -62,7 +62,17 @@ lib = ctypes.CDLL(LIB_PATH)
 
 
 def save_image(parms: "Parameters", rect: "pymupdf.Rect", i: int) -> str:
-    """Optionally render the rect part of a page."""
+    """Renders a rectangular area of a page and saves or embeds it.
+
+    Args:
+        parms: A Parameters object containing page and configuration details.
+        rect: The pymupdf.Rect area to be rendered.
+        i: An integer index for creating a unique image filename.
+
+    Returns:
+        The path to the saved image file, a base64 encoded data URI, or an
+        empty string if the image is not saved or embedded.
+    """
     page = parms.page
     image_size_limit_val = getattr(parms, "image_size_limit", image_size_limit)
     write_images = getattr(parms, "write_images", False)
@@ -96,7 +106,17 @@ def save_image(parms: "Parameters", rect: "pymupdf.Rect", i: int) -> str:
 
 
 def page_is_ocr(page: "pymupdf.Page") -> bool:
-    """Check if page exclusively contains OCR text."""
+    """Checks if a page seems to be OCR-ed.
+
+    This is determined by checking if the only text type in the page's
+    Bboxlog is 'ignore-text'.
+
+    Args:
+        page: The pymupdf.Page object to check.
+
+    Returns:
+        True if the page is likely OCR-ed, False otherwise.
+    """
     try:
         text_types = set([b[0] for b in page.get_bboxlog() if "text" in b[0]])
         if text_types == {"ignore-text"}:
@@ -109,7 +129,21 @@ def page_is_ocr(page: "pymupdf.Page") -> bool:
 def output_images(
     parms: "Parameters", text_rect: Optional["pymupdf.Rect"], force_text: bool
 ) -> str:
-    """Output images and graphics above text rectangle."""
+    """Generates Markdown for images and graphics.
+
+    This function processes images that are located above a given text rectangle
+    or all remaining images if no text rectangle is provided. It can also
+    extract text from the image areas.
+
+    Args:
+        parms: A Parameters object containing page and configuration details.
+        text_rect: An optional pymupdf.Rect. If provided, only images
+                   above this rectangle are processed.
+        force_text: If True, extract text from the image areas.
+
+    Returns:
+        A string containing the Markdown for the processed images.
+    """
     if not parms.img_rects:
         return ""
     this_md = ""
@@ -149,7 +183,16 @@ def output_images(
 
 
 def intersects_rects(rect: "pymupdf.Rect", rect_list: List["pymupdf.Rect"]) -> int:
-    """Check if middle of rect is contained in a rect of the list."""
+    """Checks if the center of a rectangle is contained within any rectangle in a list.
+
+    Args:
+        rect: The pymupdf.Rect to check.
+        rect_list: A list of pymupdf.Rect objects to check against.
+
+    Returns:
+        The 1-based index of the first rectangle in the list that contains
+        the center of the input rectangle, or 0 if no intersection is found.
+    """
     delta = (-1, -1, 1, 1)
     enlarged = rect + delta
     abs_enlarged = abs(enlarged) * 0.5
@@ -161,6 +204,32 @@ def intersects_rects(rect: "pymupdf.Rect", rect_list: List["pymupdf.Rect"]) -> i
 
 @dataclass
 class Parameters:
+    """A data class to hold all parameters and data for processing a single page.
+
+    Attributes:
+        page: The pymupdf.Page object being processed.
+        filename: The name of the PDF file.
+        md_string: The accumulated Markdown string for the page.
+        images: A list of dictionaries, each containing info about an image.
+        tables: A list of dictionaries, each containing info about a table.
+        graphics: A list of dictionaries, each containing info about a vector graphic.
+        words: A list of words extracted from the page.
+        line_rects: A list of rectangles for text lines.
+        written_tables: A list of indices of tables that have been written to the output.
+        written_images: A list of indices of images that have been written to the output.
+        accept_invisible: A boolean indicating whether to accept invisible text.
+        tab_rects0: A list of tuples containing table index and rectangle.
+        tab_rects: A dictionary mapping table indices to their rectangles.
+        bg_color: The background color of the page.
+        clip: The clipping rectangle for the page content.
+        links: A list of hyperlink dictionaries.
+        annot_rects: A list of annotation rectangles.
+        img_rects: A list of image rectangles.
+        tabs: A list of table objects found on the page.
+        vg_clusters0: A list of initial vector graphic cluster rectangles.
+        vg_clusters: A dictionary mapping cluster indices to their rectangles.
+        textpage: A pymupdf.TextPage object for the page.
+    """
     page: pymupdf.Page
     filename: str = ""
     md_string: str = ""
@@ -193,7 +262,18 @@ EXTRACT_WORDS: bool = False
 
 
 def get_bg_color(page: "pymupdf.Page") -> Optional[Tuple[float, float, float]]:
-    """Determine the background color of the page."""
+    """Determines the background color of a page.
+
+    It checks the color of the four corner pixels of the page. If they are
+    all the same, that color is assumed to be the background color.
+
+    Args:
+        page: The pymupdf.Page object.
+
+    Returns:
+        A tuple of (r, g, b) floats between 0 and 1 representing the
+        background color, or None if the background is not uniform.
+    """
     try:
         pix = page.get_pixmap(
             clip=(page.rect.x0, page.rect.y0, page.rect.x0 + 10, page.rect.y0 + 10)
@@ -248,7 +328,25 @@ def get_page_output(
     page_separators: bool,
     defer_tables: bool = False,
 ) -> Parameters:
-    """Process one page and return parameters object."""
+    """Processes a single page of a PDF document.
+
+    This function extracts all relevant information from a page, including text,
+    images, tables, and graphics, and stores it in a Parameters object.
+
+    Args:
+        doc: The pymupdf.Document object.
+        pno: The 0-based page number to process.
+        margins: A list of floats defining the page margins.
+        textflags: Flags for text extraction.
+        FILENAME: The name of the PDF file.
+        IGNORE_IMAGES: If True, images are not processed.
+        IGNORE_GRAPHICS: If True, vector graphics are not processed.
+        page_separators: If True, a separator is added at the end of the page.
+        defer_tables: If True, table processing is deferred to a later stage.
+
+    Returns:
+        A Parameters object populated with the extracted data from the page.
+    """
     # Ensure all required globals are available
     global DETECT_BG_COLOR, image_size_limit, table_strategy, force_text, EXTRACT_WORDS
 
@@ -452,7 +550,17 @@ def get_page_output(
 
 
 def cleanup_markdown_text(text: str) -> str:
-    """Clean up markdown text by removing unwanted tags and characters."""
+    """Performs cleanup operations on the generated Markdown text.
+
+    This includes removing <br> tags, normalizing newlines, and removing
+    unwanted characters.
+
+    Args:
+        text: The Markdown text to clean.
+
+    Returns:
+        The cleaned Markdown text.
+    """
     if not text:
         return ""
 
@@ -472,13 +580,20 @@ def cleanup_markdown_text(text: str) -> str:
 
 
 # Define missing helper functions locally
-def is_white(text: str) -> str:
-    """Check if text is whitespace only."""
+def is_white(text: str) -> bool:
+    """Checks if a string consists only of whitespace characters.
+
+    Args:
+        text: The string to check.
+
+    Returns:
+        True if the string is empty or contains only whitespace, False otherwise.
+    """
     return not text or text.isspace()
 
 
 class ProgressBar:
-    """Simple progress bar replacement."""
+    """A simple progress bar to provide feedback during processing."""
 
     def __init__(self, iterable: Any) -> None:
         self.iterable: Any = iterable
@@ -497,6 +612,10 @@ class ProgressBar:
 
 # Define ctypes structures matching C
 class SpanDict(ctypes.Structure):
+    """A ctypes structure that mirrors the C `span_dict_t` struct.
+
+    This allows for direct memory mapping of the data returned by the C library.
+    """
     _fields_ = [
         ("bbox", ctypes.c_float * 4),
         ("text", ctypes.c_char_p),
@@ -511,6 +630,7 @@ class SpanDict(ctypes.Structure):
 
 
 class LineDict(ctypes.Structure):
+    """A ctypes structure that mirrors the C `line_dict_t` struct."""
     _fields_ = [
         ("rect", ctypes.c_float * 4),
         ("spans", ctypes.POINTER(SpanDict)),
@@ -520,6 +640,7 @@ class LineDict(ctypes.Structure):
 
 
 class LineArray(ctypes.Structure):
+    """A ctypes structure that mirrors the C `line_array_t` struct."""
     _fields_ = [
         ("lines", ctypes.POINTER(LineDict)),
         ("line_count", ctypes.c_int),
@@ -559,17 +680,18 @@ GRAPHICS_TEXT: str = "\n![](%s)\n"
 
 
 class IdentifyHeaders:
-    """Compute data for identifying header text.
+    """A class to identify header text based on font sizes.
 
-    All non-white text from all selected pages is extracted and its font size
-    noted as a rounded value.
-    The most frequent font size (and all smaller ones) is taken as body text
-    font size.
-    Larger font sizes are mapped to strings of multiples of '#', the header
-    tag in Markdown, which in turn is Markdown's representation of HTML's
-    header tags <h1> to <h6>.
-    Larger font sizes than body text but smaller than the <h6> font size are
-    represented as <h6>.
+    This class analyzes the font sizes across a document to heuristically
+    determine which font sizes correspond to headers (<h1>, <h2>, etc.) and
+    which correspond to body text. It maps larger font sizes to Markdown
+    header prefixes (e.g., '# ', '## ').
+
+    Attributes:
+        header_id (Dict[float, str]): A dictionary mapping font sizes to
+                                      Markdown header prefixes.
+        body_limit (float): The font size threshold below which text is
+                            considered body text.
     """
 
     def __init__(
@@ -579,12 +701,20 @@ class IdentifyHeaders:
         body_limit: float = 12,  # force this to be body text
         max_levels: int = 6,  # accept this many header levels
     ) -> None:
-        """Read all text and make a dictionary of fontsizes.
+        """Initializes the IdentifyHeaders class.
+
+        This involves reading the text from the specified pages, counting the
+        frequency of each font size, and building the mapping from font sizes
+        to header levels.
 
         Args:
-            doc: PDF document or filename
-            pages: consider these page numbers only
-            body_limit: treat text with larger font size as a header
+            doc: The PDF document, either as a file path (str) or a
+                 pymupdf.Document object.
+            pages: An optional list of 0-based page numbers to analyze. If
+                   None, all pages are analyzed.
+            body_limit: A font size at or below which text is always
+                        considered body text.
+            max_levels: The maximum number of header levels to identify (1-6).
         """
         if not isinstance(max_levels, int) or max_levels not in range(1, 7):
             raise ValueError("max_levels must be an integer between 1 and 6")
@@ -644,10 +774,16 @@ class IdentifyHeaders:
     def get_header_id(
         self, span: Dict[str, Any], page: Optional["pymupdf.Page"] = None
     ) -> str:
-        """Return appropriate markdown header prefix.
+        """Determines the Markdown header prefix for a given text span.
 
-        Given a text span from a "dict"/"rawdict" extraction, determine the
-        markdown header prefix string of 0 to n concatenated '#' characters.
+        Args:
+            span: A dictionary representing a text span, as extracted by
+                  PyMuPDF's "dict" or "rawdict" methods.
+            page: An optional pymupdf.Page object (not used in this implementation).
+
+        Returns:
+            A string containing the Markdown header prefix (e.g., "## "), or
+            an empty string if the span is not identified as a header.
         """
         fontsize = round(span["size"])  # compute fontsize
         if fontsize <= self.body_limit:
@@ -657,20 +793,23 @@ class IdentifyHeaders:
 
 
 class TocHeaders:
-    """Compute data for identifying header text.
+    """A class to identify header text based on the document's Table of Contents (TOC).
 
-    This is an alternative to IdentifyHeaders. Instead of running through the
-    full document to identify font sizes, it uses the document's Table Of
-    Contents (TOC) to identify headers on pages.
-    Like IdentifyHeaders, this also is no guarantee to find headers, but it
-    represents a good chance for appropriately built documents. In such cases,
-    this method can be very much faster and more accurate, because we can
-    directly use the hierarchy level of TOC items to ientify the header level.
-    Examples where this works very well are the Adobe PDF documents.
+    This class provides an alternative to `IdentifyHeaders`. Instead of analyzing
+    font sizes, it matches text spans against the titles in the document's TOC.
+    This can be faster and more accurate for documents with a well-structured TOC.
+
+    Attributes:
+        TOC (List[List[Any]]): The table of contents extracted from the document.
     """
 
     def __init__(self, doc: Union[str, "pymupdf.Document"]) -> None:
-        """Read and store the TOC of the document."""
+        """Initializes the TocHeaders class by reading and storing the document's TOC.
+
+        Args:
+            doc: The PDF document, either as a file path (str) or a
+                 pymupdf.Document object.
+        """
         if isinstance(doc, pymupdf.Document):
             mydoc = doc
         else:
@@ -684,10 +823,16 @@ class TocHeaders:
     def get_header_id(
         self, span: Dict[str, Any], page: Optional["pymupdf.Page"] = None
     ) -> str:
-        """Return appropriate markdown header prefix.
+        """Determines the Markdown header prefix for a span by matching it with TOC entries.
 
-        Given a text span from a "dict"/"rawdict" extraction, determine the
-        markdown header prefix string of 0 to n concatenated '#' characters.
+        Args:
+            span: A dictionary representing a text span.
+            page: The pymupdf.Page object where the span is located.
+
+        Returns:
+            A string containing the Markdown header prefix (e.g., "## ") if the
+            span's text matches a TOC entry for the given page, or an empty
+            string otherwise.
         """
         if not page:
             return ""
@@ -710,7 +855,24 @@ class TocHeaders:
 def process_page_batch(
     args: Tuple[str, List[int], Tuple[Any, ...], Callable, bool],
 ) -> List[Tuple[int, Optional[Parameters]]]:
-    """Process a batch of pages in parallel."""
+    """Processes a batch of pages in a separate process.
+
+    This function is designed to be called by a `ProcessPoolExecutor`. It opens
+    the PDF document once per process and then iterates through its assigned
+    batch of pages.
+
+    Args:
+        args: A tuple containing the necessary arguments:
+              - doc_name (str): The file path of the PDF.
+              - page_numbers (List[int]): The list of page numbers in this batch.
+              - doc_args (Tuple): A tuple of additional arguments for `get_page_output`.
+              - get_page_output (Callable): The function to process a single page.
+              - page_separators (bool): Whether to add page separators.
+
+    Returns:
+        A list of tuples, where each tuple contains the page number and the
+        resulting Parameters object (or None on error).
+    """
     doc_name, page_numbers, doc_args, get_page_output, page_separators = args
     name = f"batch_processing_{page_numbers[0]}_{page_numbers[-1]}"
     with profiler.time_block(name):
@@ -741,8 +903,15 @@ worker_doc = None
 
 
 def init_worker(doc_path: str):
-    """Initializer for each worker process. Opens the document and stores it in a
-    global variable private to each worker.
+    """Initializes a worker process for parallel execution.
+
+    This function is called once per worker process. It opens the specified
+    PDF document and stores the document object in a global variable, `worker_doc`,
+    which is private to that process. This avoids the overhead of opening the
+    document for every page.
+
+    Args:
+        doc_path: The file path of the PDF document.
     """
     global worker_doc
     if worker_doc is None:
@@ -750,8 +919,19 @@ def init_worker(doc_path: str):
 
 
 def process_page_worker(pno: int, doc_args: tuple, page_separators: bool) -> tuple:
-    """Worker function to process a single page.
-    Uses the global 'worker_doc' object initialized by 'init_worker'.
+    """Processes a single page within a worker process.
+
+    This function uses the pre-initialized `worker_doc` global variable to
+    process a single page.
+
+    Args:
+        pno: The 0-based page number to process.
+        doc_args: A tuple of additional arguments for `get_page_output`.
+        page_separators: Whether to add page separators.
+
+    Returns:
+        A tuple containing the page number and the resulting Parameters
+        object (or None on error).
     """
     global worker_doc
     if worker_doc is None:
@@ -800,33 +980,52 @@ def to_markdown(
     batch_size: int = 16,
     num_workers: Optional[int] = None,
 ) -> Any:
-    """Process the document and return the text of the selected pages.
+    """Converts a PDF document to a Markdown file.
+
+    This is the main function of the script, orchestrating the entire
+    conversion process. It handles page processing, image and table
+    extraction, parallel processing, and final Markdown assembly.
 
     Args:
-        doc: pymupdf.Document or string.
-        output_path: (str) path to the output markdown file.
-        pages: list of page numbers to consider (0-based).
-        hdr_info: callable or object having method 'get_hdr_info'.
-        write_images: (bool) save images / graphics as files.
-        embed_images: (bool) embed images in markdown text (base64 encoded)
-        image_path: (str) store images in this folder.
-        image_format: (str) use this image format. Choose a supported one.
-        force_text: (bool) output text despite of image background.
-        page_chunks: (bool) whether to segment output by page.
-        page_separators: (bool) whether to include page separators in output.
-        margins: omit content overlapping margin areas.
-        dpi: (int) desired resolution for generated images.
-        page_width: (float) assumption if page layout is variable.
-        page_height: (float) assumption if page layout is variable.
-        table_strategy: choose table detection strategy
-        graphics_limit: (int) if vector graphics count exceeds this, ignore all.
-        ignore_code: (bool) suppress code-like formatting (mono-space fonts)
-        extract_words: (bool, False) include "words"-like output in page chunks
-        show_progress: (bool, False) print progress as each page is processed.
-        use_glyphs: (bool, False) replace the Invalid Unicode by glyph numbers.
-        ignore_alpha: (bool, True) ignore text with alpha = 0 (transparent).
-        batch_size: (int, 16) number of pages to process in each batch.
-        num_workers: (int, None) number of worker processes. Defaults to cpu_count().
+        doc: The PDF document, as a file path (str) or pymupdf.Document object.
+        output_path: The path to the output Markdown file.
+        pages: An optional list of 0-based page numbers to process. If None,
+               all pages are processed.
+        hdr_info: An object or callable for identifying headers. Can be an
+                  instance of `IdentifyHeaders`, `TocHeaders`, or a custom callable.
+        write_images: If True, save extracted images to files.
+        embed_images: If True, embed images as base64 data URIs in the Markdown.
+        ignore_images: If True, do not process any images.
+        ignore_graphics: If True, do not process any vector graphics.
+        detect_bg_color: If True, attempt to detect and handle page background color.
+        image_path: The directory to save images in (if `write_images` is True).
+        image_format: The format for saved images (e.g., "png", "jpg").
+        image_size_limit: A float between 0 and 1. Images smaller than this
+                          fraction of the page size will be ignored.
+        filename: An optional override for the document's filename.
+        force_text: If True, extract text even if it's on top of an image.
+        page_chunks: If True, return a list of dictionaries, one per page,
+                     instead of writing to a file.
+        page_separators: If True, add a separator string between pages in the output.
+        margins: A list of one, two, or four floats defining the margins to ignore.
+        dpi: The resolution (dots per inch) for rendering images.
+        page_width: The assumed page width for reflowable documents.
+        page_height: The assumed page height for reflowable documents.
+        table_strategy: The strategy to use for table detection (from PyMuPDF).
+        graphics_limit: If the number of vector graphics exceeds this, ignore all.
+        fontsize_limit: The minimum font size to consider for text extraction.
+        ignore_code: If True, suppress formatting for code-like text.
+        extract_words: If True, include detailed word-level output (implies `page_chunks=True`).
+        show_progress: If True, print a simple progress indicator to the console.
+        use_glyphs: If True, use glyph numbers for unknown Unicode characters.
+        ignore_alpha: If True, ignore transparent text.
+        batch_size: The number of pages to process in each batch during parallel execution.
+        num_workers: The number of worker processes to use for parallel execution.
+                     Defaults to the number of CPU cores.
+
+    Returns:
+        If `page_chunks` is True, returns a list of dictionaries, where each
+        dictionary represents a page. Otherwise, returns None.
     """
     # Initialize text flags
     textflags = (
@@ -1096,7 +1295,20 @@ def to_markdown(
 def extract_images_on_page_simple(
     page: "pymupdf.Page", parms: "Parameters", image_size_limit: float
 ) -> List[Dict[str, Any]]:
-    """Extract images on page, ignoring images contained in some other one (simplified mechanism)."""
+    """Extracts and filters images from a page.
+
+    This function gets all images on a page, clips them to the defined page
+    area, and then removes any images that are fully contained within another,
+    larger image.
+
+    Args:
+        page: The pymupdf.Page object.
+        parms: The Parameters object for the page.
+        image_size_limit: The minimum size for an image to be considered.
+
+    Returns:
+        A list of dictionaries, each representing a filtered image.
+    """
     img_info = page.get_image_info()
     for i in range(len(img_info)):
         item = img_info[i]
@@ -1122,7 +1334,18 @@ def extract_images_on_page_simple(
 def filter_small_images(
     page: "pymupdf.Page", parms: "Parameters", image_size_limit: float
 ) -> List[Dict[str, Any]]:
-    """Filter out small images based on size limit."""
+    """Filters out images that are smaller than a specified size limit.
+
+    Args:
+        page: The pymupdf.Page object.
+        parms: The Parameters object for the page.
+        image_size_limit: A float between 0 and 1. Images smaller than this
+                          fraction of the page size will be ignored.
+
+    Returns:
+        A list of image information dictionaries for images that meet the
+        size requirement.
+    """
     img_info = []
     for item in page.get_image_info():
         r = pymupdf.Rect(item["bbox"]) & parms.clip
@@ -1139,7 +1362,20 @@ def filter_small_images(
 def extract_images_on_page_simple_drop(
     page: "pymupdf.Page", parms: "Parameters", image_size_limit: float
 ) -> List[Dict[str, Any]]:
-    """Extract images with size filtering and overlap removal."""
+    """Extracts images, filters by size, and removes overlaps.
+
+    This function combines the logic of `filter_small_images` and
+    `extract_images_on_page_simple` to provide a complete image
+    extraction and filtering pipeline.
+
+    Args:
+        page: The pymupdf.Page object.
+        parms: The Parameters object for the page.
+        image_size_limit: The minimum size for an image to be considered.
+
+    Returns:
+        A final list of filtered and de-overlapped image dictionaries.
+    """
     img_info = filter_small_images(page, parms, image_size_limit)
 
     # sort descending by image area size

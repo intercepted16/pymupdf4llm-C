@@ -1,8 +1,9 @@
 /*
  * MuPDF C Text Extractor
  *
- * This program accepts a PDF document filename and converts it to a text file.
- * Direct C port of the PyMuPDF text extraction script with EXACT 1:1 logic replica.
+ * This file contains the C implementation for extracting structured text from a PDF,
+ * mirroring the logic of the original PyMuPDF Python script. It provides functions
+ * to get detailed information about text lines and their constituent spans.
  *
  * Dependencies: MuPDF library
  *
@@ -10,7 +11,7 @@
  * License GNU Affero GPL 3.0
  */
 
-#define _GNU_SOURCE // Enable GNU extensions including strdup
+#define _GNU_SOURCE // Required for strdup on some systems
 #include <ctype.h>
 #include <math.h>
 #include <mupdf/fitz.h>
@@ -19,8 +20,14 @@
 #include <string.h>
 #include <time.h>
 
+// A special name used for Type 3 fonts which may not have a name.
 #define TYPE3_FONT_NAME "Unnamed-T3"
 
+// =============================================================================
+// Struct Definitions (matching the header file)
+// =============================================================================
+
+// Represents a single text span with its properties.
 typedef struct
 {
     fz_rect bbox;
@@ -34,6 +41,7 @@ typedef struct
     int block;
 } span_dict_t;
 
+// Represents a line of text, which contains one or more spans.
 typedef struct
 {
     fz_rect rect;
@@ -42,24 +50,36 @@ typedef struct
     int capacity;
 } line_dict_t;
 
+// Represents an array of lines, designed for Python interoperability.
 typedef struct
 {
     line_dict_t* lines;
     int line_count;
 } line_array_t;
 
+
+// =============================================================================
+// Memory Management
+// =============================================================================
+
+// Safely frees all memory associated with a line_array_t structure.
 void free_line_array(line_array_t* arr)
 {
     if (!arr) return;
+    // Iterate through each line.
     for (int i = 0; i < arr->line_count; i++)
     {
+        // Iterate through each span in the line.
         for (int j = 0; j < arr->lines[i].span_count; j++)
         {
+            // Free the dynamically allocated text and font strings.
             free(arr->lines[i].spans[j].text);
             free(arr->lines[i].spans[j].font);
         }
+        // Free the array of spans for the line.
         free(arr->lines[i].spans);
     }
+    // Free the array of lines and the container struct.
     free(arr->lines);
     free(arr);
 }
@@ -558,28 +578,49 @@ char* get_text_lines(fz_context* ctx, fz_page* page, fz_stext_page* textpage_par
     return alltext;
 }
 
-// public version, accepts a
+// =============================================================================
+// Public API Functions
+// =============================================================================
+
+/**
+ * @brief Extracts all structured text lines from a given PDF file.
+ *
+ * This is the main entry point for the library. It orchestrates the process of
+ * opening a PDF, iterating through its pages, and extracting detailed line and
+ * span information from each page.
+ *
+ * @param pdf_path The file path of the PDF document to process.
+ * @return A pointer to a `line_array_t` structure containing all extracted lines.
+ *         The caller is responsible for freeing this structure using `free_line_array`.
+ *         Returns `NULL` if the document cannot be opened or an error occurs.
+ */
 line_array_t* get_raw_lines(const char* pdf_path)
 {
     fz_context* ctx = NULL;
     fz_document* doc = NULL;
+
+    // Allocate the top-level result structure.
     line_array_t* result = malloc(sizeof(line_array_t));
     if (!result) return NULL;
     result->lines = NULL;
     result->line_count = 0;
 
-    // Create MuPDF context
+    // Create a new MuPDF context.
     ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
     if (!ctx)
     {
         fprintf(stderr, "Cannot create MuPDF context\n");
+        free(result);
         return NULL;
     }
+
+    // Use a try-catch block for robust error handling with MuPDF.
     fz_try(ctx)
     {
+        // Register document handlers to support various file types.
         fz_register_document_handlers(ctx);
 
-        // Open the document
+        // Open the PDF document.
         doc = fz_open_document(ctx, pdf_path);
         if (!doc)
         {
@@ -588,7 +629,7 @@ line_array_t* get_raw_lines(const char* pdf_path)
 
         int page_count = fz_count_pages(ctx, doc);
 
-        // Process each page
+        // Process each page of the document.
         for (int page_no = 0; page_no < page_count; page_no++)
         {
             fz_page* page = fz_load_page(ctx, doc, page_no);
@@ -598,6 +639,7 @@ line_array_t* get_raw_lines(const char* pdf_path)
                 continue;
             }
 
+            // Create a structured text page from the PDF page.
             fz_stext_options opts = {0};
             fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, &opts);
             if (!textpage)
@@ -607,42 +649,50 @@ line_array_t* get_raw_lines(const char* pdf_path)
                 continue;
             }
 
-            // Get raw lines from this page
-            int line_count;
-            line_dict_t* lines =
-                _get_raw_lines(ctx, textpage, fz_bound_page(ctx, page), 3.0f, 1, &line_count);
+            // Extract the raw lines from the current page.
+            int line_count_for_page;
+            line_dict_t* lines_for_page = _get_raw_lines(ctx, textpage, fz_bound_page(ctx, page), 3.0f, 1, &line_count_for_page);
 
-            if (lines && line_count > 0)
+            // If lines were found, append them to the main result array.
+            if (lines_for_page && line_count_for_page > 0)
             {
-                // Append to all_lines
-                result->lines =
-                    realloc(result->lines, (result->line_count + line_count) * sizeof(line_dict_t));
+                // Reallocate the result array to accommodate the new lines.
+                result->lines = realloc(result->lines, (result->line_count + line_count_for_page) * sizeof(line_dict_t));
                 if (!result->lines)
                 {
                     fprintf(stderr, "Memory allocation failed\n");
+                    // Free partially allocated resources before throwing error.
+                    free(lines_for_page);
                     fz_drop_stext_page(ctx, textpage);
                     fz_drop_page(ctx, page);
                     free(result);
                     fz_throw(ctx, FZ_ERROR_GENERIC, "Memory allocation failed");
                 }
-                memcpy(&result->lines[result->line_count], lines, line_count * sizeof(line_dict_t));
-                result->line_count += line_count;
-                free(lines); // lines array itself can be freed; spans are preserved
+                // Copy the new lines into the result array.
+                memcpy(&result->lines[result->line_count], lines_for_page, line_count_for_page * sizeof(line_dict_t));
+                result->line_count += line_count_for_page;
+                free(lines_for_page); // The container array is freed; the content is now owned by `result`.
             }
 
+            // Clean up resources for the current page.
             fz_drop_stext_page(ctx, textpage);
             fz_drop_page(ctx, page);
         }
-
-        fz_drop_document(ctx, doc);
+    }
+    fz_always(ctx)
+    {
+        // This block ensures that cleanup happens whether an error occurred or not.
+        if (doc) fz_drop_document(ctx, doc);
     }
     fz_catch(ctx)
     {
+        // Handle any errors thrown by MuPDF.
         fprintf(stderr, "Error: %s\n", fz_caught_message(ctx));
-        if (doc) fz_drop_document(ctx, doc);
-        if (ctx) fz_drop_context(ctx);
-        return NULL;
+        free_line_array(result); // Free any partially populated results.
+        result = NULL;
     }
+
+    // Clean up the MuPDF context and return the final result.
     fz_drop_context(ctx);
     return result;
 }

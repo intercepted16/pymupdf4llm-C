@@ -89,115 +89,119 @@
 #define BATCH_PAGES 10
 #define MAX_SPAN_TEXT_SIZE 4096 // Maximum text per span
 
-// Job structure for batch assignment
+// =============================================================================
+// Struct Definitions
+// =============================================================================
+
+// Defines a unit of work for a worker thread, specifying a range of pages.
 typedef struct
 {
-    int start_page;
-    int end_page;
-    int batch_num;
+    int start_page; // Starting page number of the batch.
+    int end_page;   // Ending page number of the batch (exclusive).
+    int batch_num;  // Unique identifier for the batch.
 } Job;
 
-// Worker thread argument structure
+// Arguments passed to each worker thread.
 typedef struct
 {
-    const char* pdf_path;
-    const char* output_path; // Pass the base output path for temp file naming
-    Job* jobs;
-    int* next_job_index;
-    pthread_mutex_t* job_mutex;
-    pthread_mutex_t* table_mutex; // Mutex for table extraction (global state protection)
+    const char* pdf_path;         // Path to the source PDF file.
+    const char* output_path;      // Base path for temporary output files.
+    Job* jobs;                    // Pointer to the array of jobs.
+    int* next_job_index;          // Pointer to the index of the next available job.
+    pthread_mutex_t* job_mutex;   // Mutex to protect access to the next_job_index.
+    pthread_mutex_t* table_mutex; // Mutex to protect table extraction logic (if it involves global state).
 } WorkerArgs;
 
-// Global mutex for table extraction (protects global variables in table.c)
+// Global mutex for thread-safe table extraction.
 static pthread_mutex_t g_table_extraction_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// String builder for efficient text construction
+// A dynamic string builder for efficient string concatenation.
 typedef struct
 {
-    char* data;
-    size_t length;
-    size_t capacity;
+    char* data;       // Buffer to store the string.
+    size_t length;    // Current length of the string.
+    size_t capacity;  // Allocated capacity of the buffer.
 } StringBuilder;
 
-// Batch buffer for memory-efficient I/O
+// A buffer for batching writes to a file, reducing I/O operations.
 typedef struct
 {
-    char* data;
-    size_t length;
-    size_t capacity;
-    FILE* output_file;
+    char* data;          // Buffer to store data before writing.
+    size_t length;       // Current amount of data in the buffer.
+    size_t capacity;     // Allocated capacity of the buffer.
+    FILE* output_file;   // The file to write to.
 } BatchBuffer;
 
-// Font analysis structure
+// Holds data for font analysis to identify headers and body text.
 typedef struct
 {
-    int font_counts[MAX_FONT_SIZE];
-    double body_limit;
-    char header_mapping[MAX_FONT_SIZE][8]; // e.g., "## " for level 2
+    int font_counts[MAX_FONT_SIZE];        // Frequency of each font size.
+    double body_limit;                     // The font size considered as body text.
+    char header_mapping[MAX_FONT_SIZE][8]; // Maps font sizes to Markdown header tags (e.g., "## ").
 } FontAnalyzer;
 
-// Text span information
+// Represents a text span with detailed properties.
 typedef struct
 {
-    char* text;
-    char* font;
-    int flags;
-    int char_flags;
-    double size;
-    fz_rect bbox;
-    fz_matrix trm;
-    int bold;
-    int italic;
-    int mono;
-    int strikeout;
-    int block_num;
-    int superscript;
+    char* text;       // The text content of the span.
+    char* font;       // The font name.
+    int flags;        // Style flags (e.g., bold, italic).
+    int char_flags;   // Character-specific flags.
+    double size;      // Font size.
+    fz_rect bbox;     // Bounding box of the span.
+    fz_matrix trm;    // Transformation matrix of the text.
+    int bold;         // Boolean flag for bold style.
+    int italic;       // Boolean flag for italic style.
+    int mono;         // Boolean flag for monospace style.
+    int strikeout;    // Boolean flag for strikeout style.
+    int block_num;    // The block number this span belongs to.
+    int superscript;  // Boolean flag for superscript style.
 } TextSpan;
 
-// Reusable span array for memory efficiency
+// A memory-efficient, reusable array for storing spans of a single line.
 typedef struct
 {
-    TextSpan spans[MAX_SPANS_PER_LINE];
-    char text_buffers[MAX_SPANS_PER_LINE][MAX_SPAN_TEXT_SIZE];
-    int count;
+    TextSpan spans[MAX_SPANS_PER_LINE];                  // Fixed-size array of spans.
+    char text_buffers[MAX_SPANS_PER_LINE][MAX_SPAN_TEXT_SIZE]; // Pre-allocated text buffers for each span.
+    int count;                                           // The number of spans currently in use.
 } ReusableSpanArray;
 
-// Text line information
+// Represents a line of text, composed of multiple spans.
 typedef struct
 {
-    TextSpan* spans;
-    int span_count;
-    int capacity;
-    fz_rect bbox;
+    TextSpan* spans;     // Dynamic array of spans in the line.
+    int span_count;      // Number of spans.
+    int capacity;        // Allocated capacity of the spans array.
+    fz_rect bbox;        // Bounding box of the entire line.
 } TextLine;
 
-// Text block information
+// Represents a block of text, composed of multiple lines.
 typedef struct
 {
-    TextLine* lines;
-    int line_count;
-    int capacity;
-    fz_rect bbox;
-    int block_type;
+    TextLine* lines;    // Dynamic array of lines in the block.
+    int line_count;     // Number of lines.
+    int capacity;       // Allocated capacity of the lines array.
+    fz_rect bbox;       // Bounding box of the entire block.
+    int block_type;     // Type of block (e.g., text, image).
 } TextBlock;
 
-// Link information
+// Represents a hyperlink.
 typedef struct
 {
-    char* uri;
-    fz_rect bbox;
+    char* uri;      // The target URI of the link.
+    fz_rect bbox;   // The bounding box of the link's "hotspot".
 } LinkInfo;
 
-// Page processing parameters (simplified - no tables/images)
+// Parameters for processing a single page.
 typedef struct
 {
-    BatchBuffer* batch_buffer;
-    ReusableSpanArray* reusable_spans;
-    FontAnalyzer* font_analyzer;
-    fz_rect clip;
-    fz_stext_page* textpage; // Temporary handle, not owned
-    fz_rect* table_rects;
-    int table_count;
+    BatchBuffer* batch_buffer;           // Buffer for writing output.
+    ReusableSpanArray* reusable_spans;   // Reusable array for spans.
+    FontAnalyzer* font_analyzer;         // Font analysis data for the page or batch.
+    fz_rect clip;                        // The clipping rectangle for the page.
+    fz_stext_page* textpage;             // The structured text page (temporary handle).
+    fz_rect* table_rects;                // Array of rectangles identified as tables.
+    int table_count;                     // The number of table rectangles.
 } PageParams;
 
 // Function declarations
@@ -1227,120 +1231,101 @@ static int process_pdf_page(fz_context* ctx, fz_page* page, PageParams* params)
     return 0;
 }
 
-// NEW: The worker thread function (Temporary File Version)
+// =============================================================================
+// Worker Thread and Parallel Processing
+// =============================================================================
 
+/**
+ * @brief The main function for each worker thread.
+ *
+ * Each worker thread pulls jobs (page batches) from a shared queue, processes them
+ * in isolation, and writes the output to a unique temporary file. This approach
+ * minimizes memory usage and allows for parallel processing of the PDF.
+ *
+ * @param arg A void pointer to a `WorkerArgs` struct containing thread parameters.
+ * @return NULL.
+ */
 void* worker_thread(void* arg)
 {
     WorkerArgs* worker_args = (WorkerArgs*)arg;
 
-    ReusableSpanArray* reusable_spans = NULL;
-
-    reusable_spans = malloc(sizeof(ReusableSpanArray));
-
+    // Allocate a reusable span array for this thread to minimize memory allocations.
+    ReusableSpanArray* reusable_spans = malloc(sizeof(ReusableSpanArray));
     if (!reusable_spans)
     {
         fprintf(stderr, "Error: Thread failed to allocate reusable spans buffer\n");
-
         return NULL;
     }
-
     reusable_spans_init(reusable_spans);
 
+    // Main worker loop: continue processing jobs until a sentinel is found.
     while (1)
     {
+        // Atomically get the next job from the queue.
         pthread_mutex_lock(worker_args->job_mutex);
-
         int current_job_index = (*worker_args->next_job_index)++;
-
         pthread_mutex_unlock(worker_args->job_mutex);
-
-        if (worker_args->jobs[current_job_index].start_page == -1)
-        {
-            break; // No more jobs
-        }
 
         Job current_job = worker_args->jobs[current_job_index];
 
-        // --- 1. Create a unique temporary filename ---
+        // A start_page of -1 is the sentinel indicating no more jobs.
+        if (current_job.start_page == -1)
+        {
+            break;
+        }
 
+        // --- Step 1: Create a unique temporary filename for this batch's output.
         char temp_filename[256];
-
-        snprintf(temp_filename, sizeof(temp_filename), "%s.batch_%d.tmp", worker_args->output_path,
-                 current_job.batch_num);
-
+        snprintf(temp_filename, sizeof(temp_filename), "%s.batch_%d.tmp", worker_args->output_path, current_job.batch_num);
         FILE* temp_file = fopen(temp_filename, "w");
-
         if (!temp_file)
         {
             fprintf(stderr, "Error: Thread failed to create temporary file: %s\n", temp_filename);
-
             continue;
         }
 
-        // --- 2. Process the batch in isolation, writing to the temp file ---
-
-        fz_context* ctx = fz_new_context(NULL, NULL, 256 * 1024 * 1024);
-
+        // --- Step 2: Process the batch in an isolated MuPDF context.
+        fz_context* ctx = fz_new_context(NULL, NULL, 256 * 1024 * 1024); // 256MB store per thread
         if (!ctx)
         {
             fprintf(stderr, "Error: Thread failed to create MuPDF context.\n");
-
             fclose(temp_file);
-
             continue;
         }
 
         fz_document* doc = NULL;
-
         FontAnalyzer* batch_analyzer = NULL;
-
-        // The BatchBuffer now writes directly to our temporary file
-
         BatchBuffer* batch_buffer = batch_buffer_create(temp_file);
 
         fz_try(ctx)
         {
             fz_register_document_handlers(ctx);
-
             doc = fz_open_document(ctx, worker_args->pdf_path);
-
             if (!doc) fz_rethrow(ctx);
 
-            // 1. Analyze fonts for the current batch
-
+            // --- First Pass: Analyze fonts for the current batch to identify headers.
             batch_analyzer = font_analyzer_create();
-
             if (!batch_analyzer) fz_rethrow(ctx);
 
             for (int p = current_job.start_page; p < current_job.end_page; p++)
             {
                 fz_page* page = fz_load_page(ctx, doc, p);
-
                 fz_stext_page* textpage = NULL;
-
                 fz_try(ctx)
                 {
-                    fz_stext_options opts = {.flags = FZ_STEXT_CLIP | FZ_STEXT_ACCURATE_BBOXES |
-                                                      FZ_STEXT_COLLECT_STYLES};
-
+                    fz_stext_options opts = {.flags = FZ_STEXT_CLIP | FZ_STEXT_ACCURATE_BBOXES | FZ_STEXT_COLLECT_STYLES};
                     textpage = fz_new_stext_page_from_page(ctx, page, &opts);
-
                     if (textpage)
                     {
-                        for (fz_stext_block* block = textpage->first_block; block;
-                             block = block->next)
+                        for (fz_stext_block* block = textpage->first_block; block; block = block->next)
                         {
                             if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
-
-                            for (fz_stext_line* line = block->u.t.first_line; line;
-                                 line = line->next)
+                            for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
                             {
                                 for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
                                 {
                                     if (ch->c <= 32 || ch->c == 160) continue;
-
                                     int font_size = (int)round(ch->size);
-
                                     if (font_size >= 0 && font_size < MAX_FONT_SIZE)
                                     {
                                         batch_analyzer->font_counts[font_size]++;
@@ -1350,266 +1335,182 @@ void* worker_thread(void* arg)
                         }
                     }
                 }
-
                 fz_always(ctx)
                 {
                     if (textpage) fz_drop_stext_page(ctx, textpage);
-
                     if (page) fz_drop_page(ctx, page);
                 }
-
                 fz_catch(ctx)
                 {
-                    fprintf(stderr, "\nWarning: Failed to analyze fonts on page %d. Skipping.\n",
-                            p + 1);
+                    fprintf(stderr, "\nWarning: Failed to analyze fonts on page %d. Skipping.\n", p + 1);
                 }
             }
-
             font_analyzer_build_mappings(batch_analyzer, 12.0, 6);
 
-            // Second pass: generate markdown
-
+            // --- Second Pass: Generate markdown for each page in the batch.
             for (int p = current_job.start_page; p < current_job.end_page; p++)
             {
                 fz_page* page = fz_load_page(ctx, doc, p);
 
-                // Find tables on this page to exclude their text
-                // Use mutex to protect global state in table detection functions
+                // Lock the mutex before table detection to ensure thread safety.
                 pthread_mutex_lock(worker_args->table_mutex);
+                fz_rect* table_rects = NULL;
                 int table_count = 0;
-                // ColumnBoxesOptions opts = {
-                //     .footer_margin = 0.0f,
-                //     .header_margin = 0.0f,
-                //     .no_image_text = 1,
-                //     .textpage_param = NULL,
-                //     .paths = NULL,
-                //     .path_count = 0,
-                //     .avoid = NULL,
-                //     .avoid_count = 0,
-                //     .ignore_images = 1,
-                //     .result_count = NULL,
-                //     .preset = 1 // Use preset 1 (ignore images)
-                // };
-                fz_rect* table_rects = NULL; // Temporarily disable table detection
-
+                // Note: Table detection is temporarily disabled in this simplified version.
+                // To enable it, you would call a table detection function here.
                 pthread_mutex_unlock(worker_args->table_mutex);
 
+                // Set up parameters for page processing.
                 PageParams params = {
-
                     .batch_buffer = batch_buffer,
-
                     .reusable_spans = reusable_spans,
-
                     .font_analyzer = batch_analyzer,
-
                     .table_rects = table_rects,
-
                     .table_count = table_count
-
                 };
 
                 process_pdf_page(ctx, page, &params);
 
-                // Cleanup
-
+                // Clean up page-specific resources.
                 if (table_rects) free(table_rects);
-
                 fz_drop_page(ctx, page);
             }
         }
-
         fz_always(ctx)
         {
-            // Cleanup for this batch
-
-            batch_buffer_destroy(batch_buffer); // This will flush the final data to the temp file
-
+            // Clean up all resources for this batch.
+            batch_buffer_destroy(batch_buffer); // Flushes any remaining data to the temp file.
             fclose(temp_file);
-
             font_analyzer_destroy(batch_analyzer);
-
             if (doc) fz_drop_document(ctx, doc);
-
-            fz_drop_context(ctx); // Frees all memory for this batch
+            fz_drop_context(ctx); // Frees all memory associated with this context.
         }
-
         fz_catch(ctx)
         {
-            fprintf(stderr, "Error processing batch starting at page %d.\n",
-                    current_job.start_page + 1);
+            fprintf(stderr, "Error processing batch starting at page %d.\n", current_job.start_page + 1);
         }
     }
 
     free(reusable_spans);
-
     return NULL;
 }
 
-// NEW: The revised to_markdown orchestrator function
-
+/**
+ * @brief Main orchestration function for converting a PDF to Markdown.
+ *
+ * This function sets up the parallel processing environment. It divides the document
+ * into batches, creates worker threads to process them, and then stitches the
+ * resulting temporary files together into the final output file.
+ *
+ * @param pdf_path Path to the input PDF file.
+ * @param output_path Path to the output Markdown file.
+ * @return 0 on success, -1 on failure.
+ */
 extern EXPORT int to_markdown(const char* pdf_path, const char* output_path)
 {
-    // --- 1. Setup (Get page count) ---
-
+    // --- 1. Initial Setup: Get page count from the PDF.
     int page_count;
-
     fz_context* count_ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
-
     if (!count_ctx)
     {
         fprintf(stderr, "Error: Failed to create MuPDF context for page count\n");
-
         return -1;
     }
-
     fz_document* temp_doc = NULL;
-
     fz_try(count_ctx)
     {
         fz_register_document_handlers(count_ctx);
-
         temp_doc = fz_open_document(count_ctx, pdf_path);
-
         page_count = fz_count_pages(count_ctx, temp_doc);
     }
-
     fz_always(count_ctx)
     {
         if (temp_doc) fz_drop_document(count_ctx, temp_doc);
-
         fz_drop_context(count_ctx);
     }
-
     fz_catch(count_ctx)
     {
         fprintf(stderr, "Error: Could not open PDF to get page count.\n");
-
         return -1;
     }
 
     int num_threads = sysconf(_SC_NPROCESSORS_ONLN);
-
     if (num_threads <= 0) num_threads = 4;
+    printf("Processing %d pages using up to %d threads (low memory mode)...\n", page_count, num_threads);
 
-    printf("Processing %d pages using up to %d threads (low memory mode)...\n", page_count,
-           num_threads);
-
-    // --- 2. Create Jobs ---
-
+    // --- 2. Create Jobs: Divide the pages into batches.
     int num_batches = (page_count + BATCH_PAGES - 1) / BATCH_PAGES;
-
     Job* jobs = malloc(sizeof(Job) * (num_batches + num_threads));
-
     if (!jobs)
     {
         fprintf(stderr, "Error: malloc failed for jobs array\n");
-
         return -1;
     }
-
     for (int i = 0; i < num_batches; i++)
     {
         jobs[i].start_page = i * BATCH_PAGES;
-
-        jobs[i].end_page = (jobs[i].start_page + BATCH_PAGES < page_count)
-                               ? jobs[i].start_page + BATCH_PAGES
-                               : page_count;
-
+        jobs[i].end_page = (jobs[i].start_page + BATCH_PAGES < page_count) ? jobs[i].start_page + BATCH_PAGES : page_count;
         jobs[i].batch_num = i;
     }
-
-    // Add sentinel jobs to stop threads
-
+    // Add sentinel jobs to signal the end of the queue to worker threads.
     for (int i = num_batches; i < num_batches + num_threads; i++)
     {
         jobs[i].start_page = -1;
     }
 
-    // --- 3. Launch Worker Threads ---
-
+    // --- 3. Launch Worker Threads.
     pthread_t* threads = malloc(sizeof(pthread_t) * num_threads);
-
     if (!threads)
     {
         fprintf(stderr, "Error: malloc failed for threads array\n");
-
         free(jobs);
-
         return -1;
     }
-
     int next_job_index = 0;
-
     pthread_mutex_t job_mutex = PTHREAD_MUTEX_INITIALIZER;
-
     WorkerArgs worker_args = {
-
         .pdf_path = pdf_path,
-
         .output_path = output_path,
-
         .jobs = jobs,
-
         .next_job_index = &next_job_index,
-
         .job_mutex = &job_mutex,
-
         .table_mutex = &g_table_extraction_mutex
-
     };
-
     for (int i = 0; i < num_threads; ++i)
     {
         pthread_create(&threads[i], NULL, worker_thread, &worker_args);
     }
 
-    // --- 4. Wait for threads to finish ---
-
+    // --- 4. Wait for all worker threads to complete.
     for (int i = 0; i < num_threads; ++i)
     {
         pthread_join(threads[i], NULL);
     }
-
     printf("\nAll batches processed. Assembling final markdown file from temp files...\n");
 
-    // --- 5. Stitch temporary files together in order ---
-
+    // --- 5. Stitch temporary files together in the correct order.
     FILE* out_file = fopen(output_path, "wb");
-
     if (!out_file)
     {
         fprintf(stderr, "Error: Failed to open final output file: %s\n", output_path);
-
         free(threads);
-
         free(jobs);
-
         return -1;
     }
-
     for (int i = 0; i < num_batches; ++i)
     {
         char temp_filename[256];
-
         snprintf(temp_filename, sizeof(temp_filename), "%s.batch_%d.tmp", output_path, i);
-
         append_file(out_file, temp_filename);
-
-        remove(temp_filename); // Delete the temporary file after use
+        remove(temp_filename); // Clean up the temporary file.
     }
-
     fclose(out_file);
 
-    // --- 6. Final Cleanup ---
-
+    // --- 6. Final Cleanup.
     free(threads);
-
     free(jobs);
-
     pthread_mutex_destroy(&job_mutex);
-
     printf("\n✓ Conversion completed successfully!\n");
-
     return 0;
 }
 
