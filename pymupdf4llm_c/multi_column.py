@@ -15,16 +15,22 @@ lib = ctypes.CDLL(LIB_PATH)
 RectLike = Union["pymupdf.Rect", dict[str, Any], tuple[float, ...], list[float]]
 
 
-def _ensure_rects(rects: Optional[List[RectLike]]) -> List[Any]:
-    """Convert a list of rectangle-like objects (dicts, tuples, lists) to pymupdf.Rect.
-    Accepts:
-        - pymupdf.Rect
-        - dict with 'bbox' key or x0/y0/x1/y1 keys
-        - tuple/list of 4 floats
+def _ensure_rects(rects: Optional[List[RectLike]]) -> List["pymupdf.Rect"]:
+    """Converts a list of various rectangle-like objects into a list of pymupdf.Rect objects.
+
+    This function handles `pymupdf.Rect` objects, dictionaries with 'bbox' or
+    coordinate keys, and tuples/lists of 4 floats.
+
+    Args:
+        rects: A list of rectangle-like objects.
+
     Returns:
-        List of pymupdf.Rect
+        A list of `pymupdf.Rect` objects.
+
+    Raises:
+        TypeError: If an object in the list cannot be converted to a `pymupdf.Rect`.
     """
-    result: List[Any] = []
+    result: List["pymupdf.Rect"] = []
     if not rects:
         return result
     for r in rects:
@@ -52,21 +58,28 @@ def column_boxes(
     paths: Optional[List[RectLike]] = None,
     avoid: Optional[List[RectLike]] = None,
     ignore_images: bool = False,
-) -> List[Any]:
-    """Determine bounding boxes which wrap a column on the page.
+) -> List["pymupdf.Rect"]:
+    """Determines the bounding boxes of text columns on a page.
+
+    This function is a Python wrapper around the C function `column_boxes`.
+    It takes various parameters to control the column detection logic and
+    returns a list of rectangles, each representing a text column.
 
     Args:
-        file_path: Path to PDF file (str or bytes).
-        page: pymupdf.Page object.
-        footer_margin: Margin to ignore at bottom of page.
-        header_margin: Margin to ignore at top of page.
-        no_image_text: If True, ignore text over images.
-        paths: List of rectangles (Rect/dict/tuple/list) for background regions.
-        avoid: List of rectangles to avoid (e.g., images/tables).
-        ignore_images: If True, ignore image regions.
+        file_path: The path to the PDF file, as a string or bytes.
+        page: The `pymupdf.Page` object to analyze.
+        footer_margin: The height of the footer margin to ignore.
+        header_margin: The height of the header margin to ignore.
+        no_image_text: If True, ignore text that is on top of images.
+        paths: An optional list of rectangle-like objects representing
+               background regions to consider.
+        avoid: An optional list of rectangle-like objects to avoid, such as
+               images or tables.
+        ignore_images: If True, ignore image regions entirely.
 
     Returns:
-        List of pymupdf.Rect bounding boxes for columns.
+        A list of `pymupdf.Rect` objects, each representing the bounding
+        box of a detected text column.
     """
     # Ensure file_path is bytes
     file_path_bytes: bytes = (

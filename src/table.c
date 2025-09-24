@@ -1,7 +1,9 @@
 /*
- * Improved Table Detection for MuPDF C Multi-Column Detector
+ * Improved Table Detection for MuPDF C Library
  *
- * Enhanced table detection with better accuracy and performance
+ * This file implements an enhanced table detection algorithm that offers better
+ * accuracy and performance compared to simpler methods. It uses a combination of
+ * spatial clustering, grid analysis, and content analysis to identify tables.
  */
 
 #include <ctype.h>
@@ -10,43 +12,49 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define EPSILON 2.0f
-#define MAX_CANDIDATES 100
-#define MAX_BLOCKS 3000
+// =============================================================================
+// Constants and Struct Definitions
+// =============================================================================
 
-// Table candidate structure
+#define EPSILON 2.0f        // Epsilon for float comparisons, used in clustering.
+#define MAX_CANDIDATES 100  // Maximum number of table candidates to consider on a page.
+#define MAX_BLOCKS 3000     // Maximum number of text blocks to process on a page.
+
+// Represents a potential table region found on a page.
 typedef struct
 {
-    fz_rect bbox;
-    int block_start;
-    int block_count;
-    float score;
+    fz_rect bbox;       // The bounding box of the candidate region.
+    int block_start;    // The starting index of blocks belonging to this candidate.
+    int block_count;    // The number of blocks in this candidate.
+    float score;        // A confidence score (0.0 to 1.0) indicating the likelihood of it being a table.
 } table_candidate_t;
 
-// Enhanced table features
+// Stores features extracted from a potential table region for scoring.
 typedef struct
 {
-    int row_count;
-    int col_count;
-    int cell_count;
-    float regularity_score; // How regular the grid structure is
-    float alignment_score;  // How well cells are aligned
-    float content_score;    // Likelihood of tabular content
+    int row_count;          // Number of detected rows.
+    int col_count;          // Number of detected columns.
+    int cell_count;         // Total number of cells (rows * columns).
+    float regularity_score; // Score indicating how regular the grid structure is.
+    float alignment_score;  // Score indicating how well cells are aligned.
+    float content_score;    // Score based on the likelihood of tabular content (e.g., numeric data).
 } table_features_t;
 
-// Spatial grid for efficient neighbor finding
+// A spatial grid data structure for efficiently finding neighboring text blocks.
 typedef struct
 {
-    fz_rect* blocks;
-    int* grid_cells;
-    int* cell_counts;
-    int grid_width, grid_height;
-    fz_rect bounds;
-    float cell_width, cell_height;
-    int block_count;
+    fz_rect* blocks;        // Array of all text blocks on the page.
+    int* grid_cells;        // The main grid array, storing indices of blocks.
+    int* cell_counts;       // Array storing the number of blocks in each grid cell.
+    int grid_width;         // Width of the grid in cells.
+    int grid_height;        // Height of the grid in cells.
+    fz_rect bounds;         // The overall bounds of the page content.
+    float cell_width;       // Width of a single grid cell.
+    float cell_height;      // Height of a single grid cell.
+    int block_count;        // Total number of blocks.
 } spatial_grid_t;
 
-// Indexed rectangle for spatial operations
+// A rectangle with an associated index, used for spatial operations.
 typedef struct
 {
     fz_rect bbox;
@@ -539,7 +547,22 @@ static int find_table_candidates(fz_rect* blocks, int block_count, table_candida
     return candidate_count;
 }
 
-// Improved table detection function
+// =============================================================================
+// Public API Functions
+// =============================================================================
+
+/**
+ * @brief Checks if a page is likely to contain a table using the enhanced algorithm.
+ *
+ * This function analyzes the target page and its immediate neighbors (previous and next)
+ * to make a more context-aware decision. If a high-confidence table is found on an
+ * adjacent page, it increases the likelihood that the current page also contains a table.
+ *
+ * @param pdf_path The file path to the PDF document.
+ * @param page_number The 0-based index of the page to check.
+ * @return 1 if a table is likely present, 0 if not. Returns -1 on error (though current
+ *         implementation returns 0 on error).
+ */
 extern int page_has_table(const char* pdf_path, int page_number)
 {
     fz_context* ctx = NULL;
@@ -548,7 +571,7 @@ extern int page_has_table(const char* pdf_path, int page_number)
     int surrounding_table_found = 0;
 
     ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
-    if (!ctx) return 0;
+    if (!ctx) return 0; // Return 0 on context creation failure.
 
     fz_try(ctx)
     {
@@ -557,73 +580,65 @@ extern int page_has_table(const char* pdf_path, int page_number)
         if (!doc) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
 
         int page_count = fz_count_pages(ctx, doc);
-        // Check the specific page and surrounding pages (previous and next)
-        int start = page_number - 1 >= 0 ? page_number - 1 : page_number;
-        int end = page_number + 1 < page_count ? page_number + 1 : page_number;
+        // Define the range of pages to check (target page and its neighbors).
+        int start = page_number > 0 ? page_number - 1 : 0;
+        int end = page_number < page_count - 1 ? page_number + 1 : page_count - 1;
 
         fz_rect* blocks = malloc(sizeof(fz_rect) * MAX_BLOCKS);
-        if (!blocks) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot allocate memory");
-        int block_count = 0;
+        if (!blocks) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot allocate memory for blocks");
 
-        // First, check if surrounding pages have tables
+        // --- Step 1: Check surrounding pages for high-confidence tables.
         for (int p = start; p <= end; p++)
         {
-            // Skip the target page for now, we'll check it separately
-            if (p == page_number) continue;
+            if (p == page_number) continue; // Skip the target page for now.
 
             fz_page* page = fz_load_page(ctx, doc, p);
             if (!page) continue;
 
             fz_stext_options opts = {0};
             fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, &opts);
-            if (!textpage)
-            {
-                fz_drop_page(ctx, page);
-                continue;
-            }
+            if (!textpage) { fz_drop_page(ctx, page); continue; }
 
-            // Extract text blocks for surrounding pages
+            // Extract text blocks from the surrounding page.
             int surrounding_block_count = 0;
-            fz_rect surrounding_blocks[MAX_BLOCKS];
-            for (fz_stext_block* block = textpage->first_block;
-                 block && surrounding_block_count < MAX_BLOCKS; block = block->next)
+            for (fz_stext_block* block = textpage->first_block; block && surrounding_block_count < MAX_BLOCKS; block = block->next)
             {
-                if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
-                surrounding_blocks[surrounding_block_count++] = block->bbox;
+                if (block->type == FZ_STEXT_BLOCK_TEXT) {
+                    blocks[surrounding_block_count++] = block->bbox;
+                }
             }
 
             if (surrounding_block_count >= 4)
             {
-                // Sort blocks for consistent processing
-                qsort(surrounding_blocks, surrounding_block_count, sizeof(fz_rect),
-                      compare_rects_by_top_left);
-
-                // Find table candidates on surrounding pages
+                qsort(blocks, surrounding_block_count, sizeof(fz_rect), compare_rects_by_top_left);
                 table_candidate_t candidates[MAX_CANDIDATES];
-                int candidate_count =
-                    find_table_candidates(surrounding_blocks, surrounding_block_count, candidates,
-                                          MAX_CANDIDATES, ctx, textpage);
+                int candidate_count = find_table_candidates(blocks, surrounding_block_count, candidates, MAX_CANDIDATES, ctx, textpage);
 
-                // Check if any surrounding page has a high-confidence table
+                // If a high-confidence table is found, set the flag and break early.
                 for (int i = 0; i < candidate_count; i++)
                 {
-                    if (candidates[i].score > 0.8f)
-                    { // High confidence threshold
+                    if (candidates[i].score > 0.8f) {
                         surrounding_table_found = 1;
                         break;
                     }
                 }
-
-                // Early termination if we found a high-confidence table in surrounding
-                // pages
-                if (surrounding_table_found) break;
             }
 
             fz_drop_stext_page(ctx, textpage);
             fz_drop_page(ctx, page);
+            if (surrounding_table_found) break;
         }
 
-        // Now check the target page
+        // --- Step 2: If a surrounding table was found, we can consider the job done.
+        if (surrounding_table_found) {
+            free(blocks);
+            fz_drop_document(ctx, doc);
+            doc = NULL; // Prevent double free in fz_always
+            fz_drop_context(ctx);
+            return 1;
+        }
+
+        // --- Step 3: Analyze the target page.
         fz_page* target_page = fz_load_page(ctx, doc, page_number);
         if (target_page)
         {
@@ -631,66 +646,64 @@ extern int page_has_table(const char* pdf_path, int page_number)
             fz_stext_page* target_textpage = fz_new_stext_page_from_page(ctx, target_page, &opts);
             if (target_textpage)
             {
-                // Extract text blocks for target page
-                block_count = 0;
-                for (fz_stext_block* block = target_textpage->first_block;
-                     block && block_count < MAX_BLOCKS; block = block->next)
+                int block_count = 0;
+                for (fz_stext_block* block = target_textpage->first_block; block && block_count < MAX_BLOCKS; block = block->next)
                 {
-                    if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
-                    blocks[block_count++] = block->bbox;
+                    if (block->type == FZ_STEXT_BLOCK_TEXT) {
+                        blocks[block_count++] = block->bbox;
+                    }
                 }
 
                 if (block_count >= 4)
                 {
-                    // Sort blocks for consistent processing
                     qsort(blocks, block_count, sizeof(fz_rect), compare_rects_by_top_left);
-
-                    // Find table candidates on target page
                     table_candidate_t candidates[MAX_CANDIDATES];
-                    int candidate_count = find_table_candidates(
-                        blocks, block_count, candidates, MAX_CANDIDATES, ctx, target_textpage);
+                    int candidate_count = find_table_candidates(blocks, block_count, candidates, MAX_CANDIDATES, ctx, target_textpage);
 
-                    // Find the best candidate on target page
+                    // Find the highest score among all candidates on the target page.
                     for (int i = 0; i < candidate_count; i++)
                     {
                         if (candidates[i].score > best_score)
                         {
                             best_score = candidates[i].score;
-                            if (best_score > 0.8f)
-                            { // High confidence threshold
-                                break;
-                            }
                         }
                     }
                 }
-
                 fz_drop_stext_page(ctx, target_textpage);
             }
             fz_drop_page(ctx, target_page);
         }
 
         free(blocks);
-        fz_drop_document(ctx, doc);
+    }
+    fz_always(ctx)
+    {
+        if (doc) fz_drop_document(ctx, doc);
     }
     fz_catch(ctx)
     {
-        if (doc) fz_drop_document(ctx, doc);
+        // On error, we assume no table is present.
+        best_score = 0.0f;
     }
 
     fz_drop_context(ctx);
 
-    // If surrounding pages have tables, consider this page as having a table too
-    // This implements the requirement: "if im on page 28, if 29 or 27 have
-    // tables, then 28 now does"
-    if (surrounding_table_found)
-    {
-        return 1;
-    }
-
-    // Final threshold for table detection on target page
+    // Final decision: if a surrounding page had a table, return true.
+    // Otherwise, base the decision on the best score found on the target page.
     return best_score > 0.35f;
 }
 
+
+/**
+ * @brief (Deprecated) Checks if a page likely contains a table using an older, simpler algorithm.
+ *
+ * This function uses a basic clustering algorithm to find 2x2 groups of text blocks,
+ * which is a simple indicator of a table. It is less accurate than the improved `page_has_table`.
+ *
+ * @param pdf_path The file path to the PDF document.
+ * @param page_number The 0-based index of the page to check.
+ * @return 1 if a table is likely present, 0 otherwise.
+ */
 extern int original_page_has_table(const char* pdf_path, int page_number)
 {
     fz_context* ctx = NULL;
@@ -707,31 +720,23 @@ extern int original_page_has_table(const char* pdf_path, int page_number)
         if (!doc) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
 
         int page_count = fz_count_pages(ctx, doc);
-        int start = page_number - 1 >= 0 ? page_number - 1 : page_number;
-        int end = page_number + 1 < page_count ? page_number + 1 : page_number;
+        int start = page_number > 0 ? page_number - 1 : 0;
+        int end = page_number < page_count - 1 ? page_number + 1 : page_count - 1;
 
         fz_rect* blocks = malloc(sizeof(fz_rect) * MAX_BLOCKS);
         int block_count = 0;
 
+        // Collect blocks from target and adjacent pages.
         for (int p = start; p <= end; p++)
         {
             fz_page* page = fz_load_page(ctx, doc, p);
             fz_stext_options opts = {0};
             fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, &opts);
 
-            // Offset y for previous/next pages
-            float y_offset = 0.0f;
-            if (p < page_number)
-            {
-                y_offset = -fz_bound_page(ctx, page).y1;
-            }
-            else if (p > page_number)
-            {
-                y_offset = fz_bound_page(ctx, page).y1;
-            }
+            // Apply a simple y-offset to simulate a single continuous page.
+            float y_offset = (float)(p - page_number) * (fz_bound_page(ctx, page).y1 - fz_bound_page(ctx, page).y0);
 
-            for (fz_stext_block* block = textpage->first_block; block && block_count < MAX_BLOCKS;
-                 block = block->next)
+            for (fz_stext_block* block = textpage->first_block; block && block_count < MAX_BLOCKS; block = block->next)
             {
                 if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
                 fz_rect r = block->bbox;
@@ -744,7 +749,8 @@ extern int original_page_has_table(const char* pdf_path, int page_number)
             fz_drop_page(ctx, page);
         }
 
-        // Simple 2x2 cluster check
+        // Simple 2x2 cluster check: if any block has at least one neighbor to its
+        // right (same y) and one neighbor below it (same x), it might be a table.
         for (int i = 0; i < block_count && !has_table; i++)
         {
             int row_count = 0, col_count = 0;
@@ -755,18 +761,20 @@ extern int original_page_has_table(const char* pdf_path, int page_number)
                 if (fabs(blocks[i].x0 - blocks[j].x0) < EPSILON) col_count++;
             }
             if (row_count >= 1 && col_count >= 1)
-            { // at least 2x2 cluster
+            {
                 has_table = 1;
                 break;
             }
         }
 
         free(blocks);
-        fz_drop_document(ctx, doc);
+    }
+    fz_always(ctx)
+    {
+        if (doc) fz_drop_document(ctx, doc);
     }
     fz_catch(ctx)
     {
-        if (doc) fz_drop_document(ctx, doc);
         has_table = 0;
     }
 

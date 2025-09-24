@@ -1,15 +1,16 @@
 /*
  * MuPDF C Multi-Column Detector
  *
- * This is an advanced MuPDF utility for detecting multi-column pages.
- * Direct C port of the PyMuPDF multi-column detection script with EXACT 1:1 logic replica.
+ * This file contains the C implementation for detecting multiple text columns on a PDF page.
+ * It is a direct port of the logic from the original PyMuPDF Python script, focusing on
+ * identifying and separating text blocks into distinct column layouts.
  *
- * Features:
- * - Identify text belonging to (a variable number of) columns on the page.
- * - Text with different background color is handled separately
- * - Uses text block detection capability to identify text blocks
- * - Supports ignoring footers via a footer margin parameter
- * - Returns re-created text boundary boxes (integer coordinates)
+ * Key Features:
+ * - Identifies text belonging to a variable number of columns.
+ * - Can differentiate text based on background color.
+ * - Uses MuPDF's text block detection as a starting point.
+ * - Allows for ignoring header and footer areas via margins.
+ * - Returns the bounding boxes of the detected columns.
  *
  * Dependencies: MuPDF library
  *
@@ -25,11 +26,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+// =============================================================================
+// Constants and Struct Definitions
+// =============================================================================
+
 #define MAX_RECTS 10000
 #define MAX_PATHS 1000
 #define MAX_IMAGES 1000
 #define MAX_BLOCKS 1000
 
+// A dynamic list of rectangles.
 typedef struct
 {
     fz_rect* rects;
@@ -37,12 +43,14 @@ typedef struct
     int capacity;
 } rect_list_t;
 
+// A simple key-value cache entry for memoization.
 typedef struct
 {
     char* key;
     int value;
 } cache_entry_t;
 
+// A cache for storing bounding box containment results to avoid re-computation.
 typedef struct
 {
     cache_entry_t* entries;
@@ -871,6 +879,25 @@ static fz_rect* _column_boxes(fz_context* ctx, fz_document* doc, int page_number
     return result;
 }
 
+// =============================================================================
+// Public API Functions
+// =============================================================================
+
+/**
+ * @brief Detects column boundaries on a page and returns their bounding boxes.
+ *
+ * This is the main public function for this module. It sets up the MuPDF context,
+ * opens the document, and calls the internal `_column_boxes` function to perform
+ * the core column detection logic. It handles all necessary setup and cleanup.
+ *
+ * @param pdf_path The file path to the PDF document.
+ * @param page_number The 0-based index of the page to analyze.
+ * @param[out] table_count A pointer to an integer where the number of detected columns will be stored.
+ * @param opts An optional pointer to a `ColumnBoxesOptions` struct for configuration.
+ *             If `NULL`, default settings will be used.
+ * @return A dynamically allocated array of `fz_rect` representing the column bounding boxes.
+ *         The caller is responsible for freeing this array. Returns `NULL` on failure.
+ */
 fz_rect* column_boxes(const char* pdf_path, int page_number, int* table_count,
                       ColumnBoxesOptions* opts)
 {
@@ -879,7 +906,7 @@ fz_rect* column_boxes(const char* pdf_path, int page_number, int* table_count,
     fz_rect* result = NULL;
     int result_count = 0;
 
-    // Set defaults or use opts
+    // Set defaults from the opts struct, or use 0/NULL if opts is not provided.
     float footer_margin = opts ? opts->footer_margin : 0.0f;
     float header_margin = opts ? opts->header_margin : 0.0f;
     int no_image_text = opts ? opts->no_image_text : 0;
@@ -890,43 +917,52 @@ fz_rect* column_boxes(const char* pdf_path, int page_number, int* table_count,
     int avoid_count = opts ? opts->avoid_count : 0;
     int ignore_images = opts ? opts->ignore_images : 0;
 
-    // Support presets (example: preset 1 = default margins)
+    // Apply presets if specified.
     int preset = opts ? opts->preset : 0;
-    if (preset == 1)
+    if (preset == 1) // Preset 1 uses default 36pt margins.
     {
         footer_margin = 36.0f;
         header_margin = 36.0f;
     }
 
+    // Create a new MuPDF context.
     ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
     if (!ctx) return NULL;
 
+    // Use a try-catch block for robust error handling with MuPDF.
     fz_try(ctx)
     {
         fz_register_document_handlers(ctx);
         doc = fz_open_document(ctx, pdf_path);
         if (!doc) fz_throw(ctx, FZ_ERROR_GENERIC, "Cannot open document");
 
+        // Validate the page number.
         int page_count = fz_count_pages(ctx, doc);
         if (page_number < 0 || page_number >= page_count)
             fz_throw(ctx, FZ_ERROR_GENERIC, "Page number out of range");
 
+        // Call the internal function to do the heavy lifting.
         result = _column_boxes(ctx, doc, page_number, footer_margin, header_margin, no_image_text,
                                textpage_param, paths, path_count, avoid, avoid_count, ignore_images,
                                &result_count);
-
-        fz_drop_document(ctx, doc);
+    }
+    fz_always(ctx)
+    {
+        // This block ensures that the document is closed even if an error occurs.
+        if (doc) fz_drop_document(ctx, doc);
     }
     fz_catch(ctx)
     {
-        if (doc) fz_drop_document(ctx, doc);
+        // If an error was thrown, clean up any allocated memory and reset the result.
         if (result) free(result);
         result = NULL;
         result_count = 0;
     }
 
+    // Clean up the MuPDF context.
     fz_drop_context(ctx);
 
+    // Set the output parameter for the number of columns found.
     if (table_count) *table_count = result_count;
 
     return result;
