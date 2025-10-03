@@ -3,10 +3,10 @@
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+PROJECT_ROOT = Path(__file__).parent.resolve()
 
 
-LIB_PATH = PROJECT_ROOT / "build" / "lib" / "libtomd.so"
+LIB_PATH = PROJECT_ROOT / "lib" / "libtomd.so"
 
 
 if __name__ == "__main__":

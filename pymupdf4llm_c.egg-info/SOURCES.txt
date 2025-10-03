@@ -1,0 +1,15 @@
+MANIFEST.in
+setup.py
+pymupdf4llm_c/__init__.py
+pymupdf4llm_c/geometry_utils.py
+pymupdf4llm_c/globals.py
+pymupdf4llm_c/multi_column.py
+pymupdf4llm_c/pymupdf_rag.py
+pymupdf4llm_c/table.py
+pymupdf4llm_c/utils.py
+pymupdf4llm_c/wrappers.py
+pymupdf4llm_c.egg-info/PKG-INFO
+pymupdf4llm_c.egg-info/SOURCES.txt
+pymupdf4llm_c.egg-info/dependency_links.txt
+pymupdf4llm_c.egg-info/top_level.txt
+pymupdf4llm_c/lib/libtomd.so

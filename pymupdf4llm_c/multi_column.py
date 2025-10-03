@@ -6,7 +6,7 @@ if TYPE_CHECKING:
 import ctypes
 
 import pymupdf  # type: ignore
-from globals import LIB_PATH
+from .wrappers import lib
 
 pymupdf.TOOLS.unset_quad_corrections(True)  # type: ignore
 

@@ -43,15 +43,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pymupdf
-from geometry_utils import is_significant, pymupdf_rect_to_tuple, refine_boxes
-from globals import LIB_PATH
-from multi_column import column_boxes
+from .geometry_utils import is_significant, pymupdf_rect_to_tuple, refine_boxes
+from .globals import LIB_PATH
+from .multi_column import column_boxes
 from pymupdf import mupdf
-from utils import profiler
-from wrappers import is_likely_table
-from wrappers import to_markdown as c_to_markdown
+from .utils import profiler
+from .wrappers import is_likely_table
+from .wrappers import get_raw_lines
+from .wrappers import to_markdown as c_to_markdown
 
-from table import (
+from .table import (
     locate_and_extract_tables,
     output_tables,
     process_deferred_tables,
@@ -237,6 +238,7 @@ class Parameters:
     tables: Optional[List[Dict[str, Any]]] = None
     graphics: Optional[List[Dict[str, Any]]] = None
     words: Optional[List[Tuple[float, float, float, float, str, int]]] = None
+    raw_lines: Optional[List[Tuple[Tuple[float, float, float, float], List[Dict[str, Any]]]]] = None
     line_rects: Optional[List["pymupdf.Rect"]] = None
     written_tables: Optional[List[int]] = None
     written_images: Optional[List[int]] = None
@@ -364,6 +366,7 @@ def get_page_output(
         tables=[],
         graphics=[],
         words=[],
+        raw_lines=[],
         line_rects=[],
         written_tables=[],
         written_images=[],
@@ -499,6 +502,34 @@ def get_page_output(
 
     if page_separators:
         parms.md_string += f"\n\n--- end of page={parms.page.number} ---\n\n"
+
+    # Capture raw lines for the CURRENT PAGE ONLY (for later inline table reconstruction).
+    try:
+        if parms.tabs:  # Only spend time if page actually has tables
+            text_dict = page.get_text("dict")
+            collected = []
+            for block in text_dict.get("blocks", []):
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    if not spans:
+                        continue
+                    # Compute line bbox from spans
+                    x0 = min(s["bbox"][0] for s in spans)
+                    y0 = min(s["bbox"][1] for s in spans)
+                    x1 = max(s["bbox"][2] for s in spans)
+                    y1 = max(s["bbox"][3] for s in spans)
+                    line_text = "".join(s.get("text", "") for s in spans).strip()
+                    collected.append({
+                        "rect": (float(x0), float(y0), float(x1), float(y1)),
+                        "text": line_text,
+                    })
+            # Sort lines by vertical then horizontal position
+            collected.sort(key=lambda d: (d["rect"][1], d["rect"][0]))
+            parms.raw_lines = collected
+        else:
+            parms.raw_lines = []
+    except Exception:
+        parms.raw_lines = []
 
     # Clean up non-picklable objects for parallel processing
     if defer_tables:
@@ -1237,30 +1268,39 @@ def to_markdown(
 
     # Assemble final output
     if not page_chunks:
-        try:
-            with profiler.time_block("c_to_markdown_call"):
-                if pages:
-                    status = c_to_markdown(FILENAME, output_path)
-                    if status != 0:
-                        print(f"C to_markdown failed with status {status}")
-        except Exception as e:
-            print(f"Warning: Could not get full document markdown: {e}")
-            with open(output_path, "w") as f:
-                f.write("")
-
         python_part = ""
-        with profiler.time_block("assemble_page_results"):
-            for pno, parms in all_results:
-                if parms is not None:
-                    python_part += parms.md_string
+        if not has_tables:
+            # Fast path: use C output first, then append any Python post-processing (legacy behavior)
+            try:
+                with profiler.time_block("c_to_markdown_call"):
+                    if pages:
+                        status = c_to_markdown(FILENAME, output_path)
+                        if status != 0:
+                            print(f"C to_markdown failed with status {status}")
+            except Exception as e:
+                print(f"Warning: Could not get full document markdown: {e}")
+                with open(output_path, "w") as f:
+                    f.write("")
 
-        # Clean the final Python-generated markdown part
-        python_part = cleanup_markdown_text(python_part)
-
-        with open(output_path, "a", encoding="utf-8") as f:
-            f.write("\n---TABLES---\n")
-            f.write(python_part)
-        return
+            with profiler.time_block("assemble_page_results"):
+                for pno, parms in all_results:
+                    if parms is not None:
+                        python_part += parms.md_string
+            python_part = cleanup_markdown_text(python_part)
+            with open(output_path, "a", encoding="utf-8") as f:
+                f.write("\n---TABLES---\n")
+                f.write(python_part)
+            return
+        else:
+            # Inline tables mode: skip C monolithic markdown; build everything from Python pages
+            with profiler.time_block("assemble_page_results_inline"):
+                for pno, parms in all_results:
+                    if parms is not None:
+                        python_part += parms.md_string
+            python_part = cleanup_markdown_text(python_part)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(python_part)
+            return
     else:  # page_chunks is True
         for pno, parms in all_results:
             if parms:

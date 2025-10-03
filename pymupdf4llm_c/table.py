@@ -2,8 +2,8 @@ import traceback
 from typing import List, Optional
 
 import pymupdf
-from utils import profiler
-from wrappers import is_likely_table
+from .utils import profiler
+from .wrappers import is_likely_table
 
 
 def locate_and_extract_tables(
@@ -137,7 +137,25 @@ def output_tables(
     )
 
     if defer:
-        # In defer mode, just collect table information without outputting
+        # In defer mode, emit stable placeholders so we can later replace
+        # them with the actual (already extracted) markdown in
+        # process_deferred_tables. This preserves the relative ordering of
+        # tables to surrounding text blocks and avoids end-of-page dumping.
+        # We intentionally only depend on rect metadata, not on live table
+        # objects (parms.tabs), because those objects are not picklable.
+        if text_rect is not None:
+            candidates = sorted(
+                [j for j in parms.tab_rects0 if j[1].y1 <= text_rect.y0],
+                key=lambda j: (j[1].y1, j[1].x0),
+            )
+        else:
+            candidates = parms.tab_rects0
+        for i, _ in candidates:
+            if i in written_tables:
+                continue
+            # Placeholder token – unlikely to collide with real text.
+            this_md += f"\n[[TABLE_{i}]]\n"
+            written_tables.append(i)
         return this_md
 
     if text_rect is not None:
@@ -222,21 +240,108 @@ def process_deferred_tables(
             # Process all tables for this page using global state
             page_table_md = ""
 
-            # Process all deferred tables found on this page
+            # Build a map for quick lookup by original index
+            index_map = {td["index"]: td for td in parms.deferred_tables}
+
+            # Replace placeholders inline first to preserve ordering
+            # Pattern [[TABLE_<n>]]
+            new_md_parts = []
+            for line in parms.md_string.splitlines():
+                if line.startswith("[[TABLE_") and line.endswith("]]"):
+                    try:
+                        table_index = int(line[len("[[TABLE_") : -2])
+                    except Exception:
+                        new_md_parts.append(line)
+                        continue
+                    tab_data = index_map.get(table_index)
+                    if not tab_data:
+                        # No data – leave placeholder
+                        new_md_parts.append(line)
+                        continue
+                    table_id = (pno, table_index)
+                    if table_id in global_written_tables:
+                        # Already emitted elsewhere – drop duplicate placeholder
+                        continue
+                    table_md = tab_data.get("markdown", "")
+                    new_md_parts.append(table_md)
+                    global_written_tables.add(table_id)
+                    if extract_words and tab_data.get("cells"):
+                        if not hasattr(parms, "line_rects") or parms.line_rects is None:
+                            parms.line_rects = []
+                        for cell in tab_data["cells"]:
+                            try:
+                                parms.line_rects.append(tuple(cell))
+                            except Exception:
+                                pass
+                else:
+                    new_md_parts.append(line)
+
+            parms.md_string = "\n".join(new_md_parts) + ("\n" if new_md_parts else "")
+
+            # Inline reconstruction: remove overlapping raw text fragments that fall inside table rects.
+            try:
+                if hasattr(parms, "raw_lines") and parms.raw_lines:
+                    # Build rect objects for tables
+                    table_rects = []
+                    for td in parms.deferred_tables:
+                        try:
+                            tr = pymupdf.Rect(td["rect"]) if not isinstance(td["rect"], pymupdf.Rect) else td["rect"]
+                            table_rects.append((td["index"], tr, td))
+                        except Exception:
+                            pass
+                    table_rects.sort(key=lambda x: (x[1].y0, x[1].x0))
+
+                    # Filter line texts outside table areas
+                    cleaned_lines = []
+                    for line in parms.raw_lines:
+                        rect_tuple = line.get("rect")
+                        line_rect = pymupdf.Rect(*rect_tuple)
+                        if any(line_rect.intersects(tr) and abs(line_rect & tr) / max(1.0, abs(line_rect)) > 0.3 for _, tr, _ in table_rects):
+                            continue
+                        txt = line.get("text", "").strip()
+                        if txt:
+                            cleaned_lines.append((line_rect, txt))
+
+                    # Build insertion plan: determine anchor index per table
+                    anchors = []
+                    for tidx, tr, td in table_rects:
+                        # Find first cleaned line with y0 greater than table y1 (table appears before that line)
+                        insert_at = None
+                        for i, (lr, _) in enumerate(cleaned_lines):
+                            if lr.y0 >= tr.y1 - 1:  # small tolerance
+                                insert_at = i
+                                break
+                        if insert_at is None:
+                            insert_at = len(cleaned_lines)
+                        anchors.append((insert_at, td.get("markdown", "")))
+                    # Sort anchors descending so insertion indices remain valid
+                    anchors.sort(key=lambda a: a[0], reverse=True)
+
+                    lines_only = [t for _, t in cleaned_lines]
+                    for idx, table_md in anchors:
+                        if table_md:
+                            lines_only.insert(idx, table_md.strip())
+
+                    # Reconstruct page markdown
+                    eop_marker = f"--- end of page={pno} ---"
+                    has_eop = eop_marker in parms.md_string
+                    parms.md_string = "\n\n".join(lines_only)
+                    if has_eop:
+                        parms.md_string += f"\n\n{eop_marker}\n\n"
+            except Exception:
+                pass
+
+            # Process any deferred tables that never had placeholders (e.g., edge cases)
             for tab_data in parms.deferred_tables:
                 table_index = tab_data["index"]
                 table_id = (pno, table_index)  # Create a globally unique ID
 
                 if table_id in global_written_tables:
-                    print(f"    Skipping already written table {table_id}")
                     continue
-
                 table_md = tab_data.get("markdown", "")
-                page_table_md += table_md + "\n"
+                # Append at end since no placeholder found
+                parms.md_string += table_md + "\n"
                 global_written_tables.add(table_id)
-                print(f"    Added table {table_id}: {len(table_md)} characters")
-
-                # Add cell rectangles to line_rects if EXTRACT_WORDS is enabled
                 if extract_words and tab_data.get("cells"):
                     if not hasattr(parms, "line_rects") or parms.line_rects is None:
                         parms.line_rects = []
@@ -245,11 +350,5 @@ def process_deferred_tables(
                             parms.line_rects.append(tuple(cell))
                         except Exception:
                             pass
-
-            # Add the table markdown to the page's markdown string
-            parms.md_string += page_table_md
-            print(
-                f"  Page {pno}: Added {len(page_table_md)} characters of table markdown"
-            )
 
         return all_page_results

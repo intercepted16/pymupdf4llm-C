@@ -4,8 +4,8 @@ import ctypes
 from typing import Any, Dict, List, Optional, Tuple
 
 import pymupdf
-from globals import LIB_PATH
-from utils import suppress_output
+from .globals import LIB_PATH
+from .utils import suppress_output
 
 # Load the C library
 lib = ctypes.CDLL(LIB_PATH)
