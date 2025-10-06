@@ -6,7 +6,7 @@ from pymupdf4llm_c.config import ConversionConfig
 from pymupdf4llm_c.models import PageParameters
 
 
-@pytest.mark.unit
+@pytest.mark.smoke
 def test_config_defaults():
     """Test that config has sensible defaults."""
     config = ConversionConfig()
@@ -15,7 +15,7 @@ def test_config_defaults():
     assert config.batch_size == 16
 
 
-@pytest.mark.unit
+@pytest.mark.smoke
 def test_page_parameters_init():
     """Test that PageParameters initializes correctly."""
     params = PageParameters()
@@ -24,7 +24,7 @@ def test_page_parameters_init():
     assert params.md_string == ""
 
 
-@pytest.mark.unit
+@pytest.mark.smoke
 def test_config_env_override(tmp_path, monkeypatch):
     """Config should prefer the environment override when locating the library."""
     dummy_lib = tmp_path / "libtomd.so"

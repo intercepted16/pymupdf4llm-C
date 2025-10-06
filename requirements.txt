@@ -4,5 +4,3 @@ pluggy==1.6.0
 pygments==2.19.2
 pymupdf==1.26.4
 pymupdf4llm==0.0.27
-pytest==8.4.2
-ruff==0.13.3
