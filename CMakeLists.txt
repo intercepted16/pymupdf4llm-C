@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
-project(ToMarkdownC C)
+project(PyMuPdf4LLMC C)
+
+find_package(Threads REQUIRED)
 
 # --- Compiler and Flags ---
 set(CMAKE_C_STANDARD 99)
@@ -18,27 +20,32 @@ endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 # --- Output directories ---
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+if(NOT DEFINED CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
+
+if(NOT DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+endif()
 
 # --- Include directories ---
 include_directories(
     include
-    /home/linuxbrew/.linuxbrew/include
+    /usr/include
 )
 
 # --- External Libraries ---
 set(EXTERNAL_LIBS
-    /home/linuxbrew/.linuxbrew/lib/libmupdf.so
-    /home/linuxbrew/.linuxbrew/lib/libfreetype.so
-    /home/linuxbrew/.linuxbrew/lib/libz.so
-    /home/linuxbrew/.linuxbrew/lib/libharfbuzz.so
-    /home/linuxbrew/.linuxbrew/lib/libopenjp2.so
-    /home/linuxbrew/.linuxbrew/lib/libjpeg.so
-    /home/linuxbrew/.linuxbrew/lib/libpng16.so
-    /home/linuxbrew/.linuxbrew/lib/libbz2.so
-    /home/linuxbrew/.linuxbrew/lib/libcrypto.so
-    /home/linuxbrew/.linuxbrew/lib/libcurl.so
+    /usr/lib/libmupdf.so
+    /usr/lib/libfreetype.so
+    /usr/lib/libz.so
+    /usr/lib/libharfbuzz.so
+    /usr/lib/libopenjp2.so
+    /usr/lib/libjpeg.so
+    /usr/lib/libpng16.so
+    /usr/lib/libbz2.so
+    /usr/lib/libcrypto.so
+    /usr/lib/libcurl.so
     m
     ${CMAKE_THREAD_LIBS_INIT}
 )
@@ -52,10 +59,17 @@ target_compile_definitions(tomd PRIVATE NOLIB_MAIN)
 target_link_libraries(tomd PRIVATE ${EXTERNAL_LIBS})
 
 # --- Main executable ---
-add_executable(to_md ${APP_SOURCES})
-target_link_libraries(to_md PRIVATE ${EXTERNAL_LIBS})
+option(BUILD_CLI "Build standalone to_md executable" ON)
+
+if(BUILD_CLI)
+  add_executable(to_md ${APP_SOURCES})
+  target_link_libraries(to_md PRIVATE ${EXTERNAL_LIBS})
+endif()
 
 # --- Installation ---
 install(TARGETS tomd DESTINATION lib)
-install(TARGETS to_md DESTINATION bin)
+if(BUILD_CLI)
+  install(TARGETS to_md DESTINATION bin)
+endif()
+
 message(STATUS "Executables will be installed to ${CMAKE_INSTALL_PREFIX}/bin and libraries to ${CMAKE_INSTALL_PREFIX}/lib")

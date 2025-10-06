@@ -1,16 +1,3 @@
-Metadata-Version: 2.4
-Name: pymupdf4llm-c
-Version: 1.0.0
-Summary: C-backed PDF to Markdown conversion with Python fallbacks
-Author: PyMuPDF4LLM Contributors
-Project-URL: Homepage, https://github.com/intercepted16/pymupdf4llm-C
-Requires-Python: >=3.9
-Description-Content-Type: text/markdown
-Requires-Dist: pymupdf4llm>=0.0.27
-Provides-Extra: dev
-Requires-Dist: pytest; extra == "dev"
-Requires-Dist: ruff; extra == "dev"
-
 # PyMuPDF4LLM-C
 
 High-performance PDF to Markdown conversion that pairs a MuPDF-based C backend

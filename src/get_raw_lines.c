@@ -222,8 +222,39 @@ static span_dict_t* extract_spans_from_dict(fz_context* ctx, fz_stext_page* page
                 // Initialize span with first character
                 span->bbox = fz_rect_from_quad(span_start->quad);
                 span->size = span_start->size;
-                span->flags = 0;      // Extract from font properties
-                span->char_flags = 0; // Extract from character properties
+                
+                // Extract font flags properly (matching Python: flags & 16 for bold, flags & 2 for italic, flags & 8 for mono)
+                // In MuPDF, we need to check the font name and properties
+                int font_flags = 0;
+                if (span_start->font)
+                {
+                    // Check font name for Bold, Italic, Mono indicators
+                    const char* fname = fz_font_name(ctx, span_start->font);
+                    if (fname)
+                    {
+                        if (strstr(fname, "Bold") || strstr(fname, "Black") || strstr(fname, "Heavy"))
+                            font_flags |= 1;  // Bold flag
+                        if (strstr(fname, "Italic") || strstr(fname, "Oblique"))
+                            font_flags |= 2;  // Italic flag
+                        if (strstr(fname, "Mono") || strstr(fname, "Courier") || strstr(fname, "Fixed"))
+                            font_flags |= 8;  // Monospace flag
+                    }
+                }
+                
+                // Map to Python-compatible flags
+                // Python uses: bold=16, italic=2, mono=8
+                span->flags = 0;
+                if (font_flags & 1)
+                    span->flags |= 16;  // Match Python's bold flag
+                if (font_flags & 2)
+                    span->flags |= 2;   // Match Python's italic flag  
+                if (font_flags & 8)
+                    span->flags |= 8;   // Match Python's mono flag
+                
+                // char_flags: bit 0 = strikethrough, bit 3 = bold (alternate)
+                // For now, we don't have access to strikethrough at this level
+                span->char_flags = 0;
+                
                 span->alpha = 255;    // Default, would need to extract from graphics state
                 span->line = lno;
                 span->block = bno;
