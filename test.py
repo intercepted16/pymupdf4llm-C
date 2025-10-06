@@ -7,6 +7,7 @@ def main():
         return -1
 
     to_markdown(argv[1], output_path=argv[2])
+    return 0
 
 if __name__ == "__main__":
     main()
