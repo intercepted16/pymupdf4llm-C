@@ -3,10 +3,10 @@
 This directory houses smoke, unit, and integration coverage for the `pymupdf4llm_c` package.
 
 ## What Lives Here
-- `test_smoke.py` – lightweight checks that `ConversionConfig` and `PageParameters` expose sensible defaults and respect the `PYMUPDF4LLM_C_LIB` override (`@pytest.mark.smoke`).
-- `test_conversion.py` – end-to-end exercises of `to_markdown` that generate synthetic PDFs and assert markdown structure (`@pytest.mark.integration`, `@pytest.mark.requires_pdf`). The file also contains unit tests for the markdown validator helpers.
+- `test_smoke.py` – lightweight checks that `ConversionConfig` respects the `PYMUPDF4LLM_C_LIB` override (`@pytest.mark.smoke`).
+- `test_conversion.py` – end-to-end exercises of `to_json` that generate synthetic PDFs and assert JSON block structure (`@pytest.mark.integration`, `@pytest.mark.requires_pdf`).
 - `pdf_fixtures.py` – ReportLab-based factory for the synthetic PDFs used in conversion tests (tables, headings, formatting, lists).
-- `manual_test.py` – tiny helper to try the converter manually: `python tests/manual_test.py input.pdf output.md`.
+- `manual_test.py` – tiny helper to try the JSON extractor manually: `python tests/manual_test.py input.pdf output_dir`.
 - `baseline/run_baseline.py` – snapshot of the upstream PyMuPDF baseline conversion script kept for comparison/reference.
 - `test_data/` – cache of generated fixture PDFs; created on demand and intentionally left in place between runs.
 
@@ -16,4 +16,4 @@ This directory houses smoke, unit, and integration coverage for the `pymupdf4llm
 3. Quick smoke check only: `pytest -m smoke`.
 4. Skip the native conversion path: `pytest -m "not requires_pdf"`.
 
-The integration tests write temporary markdown outputs under a temp directory and reuse the PDFs in `tests/test_data`. No manual cleanup is required.
+The integration tests write temporary per-page JSON outputs under a temp directory and reuse the PDFs in `tests/test_data`. No manual cleanup is required.
