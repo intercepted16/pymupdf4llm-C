@@ -50,6 +50,7 @@ markers = [
     "integration: Integration tests",
     "slow: Slow running tests",
     "requires_pdf: Tests that require PDF files",
+    "smoke: Basic smoke tests",
 ]
 
 [tool.coverage.run]

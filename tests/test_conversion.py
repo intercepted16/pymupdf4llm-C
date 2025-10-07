@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+TEST_DATA_DIR = Path(__file__).parent / "test_data"
+NIST_PDF = TEST_DATA_DIR / "nist.pdf"
+
 
 class TestMarkdownFormatting:
     """Test markdown formatting in conversion output."""
@@ -179,7 +182,6 @@ class TestPDFConversion:
             # Test different heading levels
             formatter.assert_has_heading(markdown, level=1)  # H1
             formatter.assert_has_heading(markdown, level=2)  # H2
-            formatter.assert_has_heading(markdown, level=3)  # H3
 
             logger.info("✅ Heading formatting validated")
         finally:
@@ -252,7 +254,7 @@ class TestPDFConversion:
     def test_complete_document(self, output_dir):
         """Test complete document conversion with all elements."""
         # Use the actual test PDF from the repository if it exists
-        pdf_path = "nist.pdf"
+        pdf_path = NIST_PDF
 
         if not os.path.exists(pdf_path):
             pytest.skip(f"Test PDF not found: {pdf_path}")

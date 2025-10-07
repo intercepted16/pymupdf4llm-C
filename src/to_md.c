@@ -245,13 +245,10 @@ static void batch_buffer_destroy(BatchBuffer* buffer);
 static int batch_buffer_append(BatchBuffer* buffer, const char* str);
 static int batch_buffer_append_formatted(BatchBuffer* buffer, const char* format, ...);
 static int batch_buffer_flush(BatchBuffer* buffer);
-static void batch_buffer_reset(BatchBuffer* buffer);
 
 // Reusable span array functions
 static void reusable_spans_init(ReusableSpanArray* spans);
 static void reusable_spans_reset(ReusableSpanArray* spans);
-static int append_markdown_for_span(BatchBuffer* buffer, TextSpan* span, FontAnalyzer* analyzer);
-static int append_markdown_for_span_no_header(BatchBuffer* buffer, TextSpan* span);
 
 // Font analyzer functions
 FontAnalyzer* font_analyzer_create(void);
@@ -262,16 +259,6 @@ void font_analyzer_build_mappings(FontAnalyzer* analyzer, double body_font_size,
 const char* get_header_id_from_analyzer(TextSpan* span, void* user_data);
 
 // Page processing functions
-static PageParams* create_page_params(void);
-static void destroy_page_params(PageParams* params);
-static void init_page_params(PageParams* params, fz_page* page, fz_rect clip);
-static int page_is_ocr(fz_context* ctx, fz_page* page);
-static int extract_annotations(fz_context* ctx, fz_page* page, PageParams* params);
-static int find_column_boxes(fz_context* ctx, fz_page* page, PageParams* params);
-static void sort_reading_order(fz_rect* rects, int count);
-static int intersects_rects(fz_rect rect, fz_rect* rect_list, int count);
-static int is_in_rects(fz_rect rect, fz_rect* rect_list, int count);
-static void process_text_in_rect(fz_context* ctx, PageParams* params, fz_rect text_rect);
 
 // Forward declarations for helper functions used in wrapper
 static int is_bold(int flags, int char_flags);
@@ -280,8 +267,6 @@ static int is_mono(int flags);
 static int is_strikeout(int char_flags);
 
 // Link processing functions
-static int extract_links(fz_context* ctx, fz_page* page, PageParams* params);
-static char* resolve_span_link(LinkInfo* links, int link_count, fz_rect span_bbox);
 
 // Advanced text processing
 static int process_pdf_page(fz_context* ctx, fz_page* page, PageParams* params);
@@ -294,13 +279,12 @@ static char* remove_standalone_horizontal_rules(const char* content);
 static char* normalize_excessive_newlines(const char* content);
 static char* normalize_unicode_gremlins(const char* content);
 static char* advanced_cleanup_markdown(const char* content);
+static char* minimal_python_cleanup(const char* content);
 
 // NEW: Additional cleanup functions for the requested features
 static char* remove_error_references(const char* content);
-static char* remove_repeating_headers_footers(const char* content, int total_pages);
 static char* normalize_italic_bold_fragments(const char* content);
 static char* handle_footnotes_inline(const char* content);
-static char* is_repeating_header_footer(const char* line, char** known_patterns, int* pattern_counts, int max_patterns);
 
 // NEW: LLM quality improvement functions
 static char* remove_all_caps_headers(const char* content);
@@ -318,7 +302,6 @@ static char* python_table_cleanup_markdown(const char* content);
 
 // NEW: Helper function to append a temporary file's content to the final output file
 
-static void append_file(FILE* dest, const char* temp_filename);
 
 // Table registry implementation
 static int table_registry_init(void)
@@ -466,8 +449,8 @@ static int reassemble_with_tables(const char* output_path, DetectedTable* tables
     // Append any remaining content
     sb_append(sb, pos);
 
-    // Apply advanced cleanup to the final reassembled content
-    char* cleaned_final = advanced_cleanup_markdown(sb->data);
+    // For Python-generated table content, avoid aggressive cleanup so spacing stays intact.
+    char* cleaned_final = minimal_python_cleanup(sb->data);
     
     // Write the cleaned reassembled content back
     FILE* output = fopen(output_path, "wb");
@@ -491,60 +474,6 @@ static int reassemble_with_tables(const char* output_path, DetectedTable* tables
     sb_destroy(sb);
     free(content);
     return 0;
-}
-
-__attribute__((unused))
-static void append_file(FILE* dest, const char* temp_filename)
-{
-    FILE* src = fopen(temp_filename, "rb");
-    if (!src)
-    {
-        fprintf(stderr, "Warning: Could not open temporary file %s for reading.\n", temp_filename);
-        return;
-    }
-
-    fseek(src, 0, SEEK_END);
-    long file_size = ftell(src);
-    fseek(src, 0, SEEK_SET);
-
-    if (file_size <= 0)
-    {
-        fclose(src);
-        return;
-    }
-
-    char* original_content = malloc(file_size + 1);
-    if (!original_content)
-    {
-        fprintf(stderr, "Error: Failed to allocate memory to read temp file.\n");
-        fclose(src);
-        return;
-    }
-
-    if (fread(original_content, 1, file_size, src) != (size_t)file_size)
-    {
-        fprintf(stderr, "Error: Failed to read temp file %s.\n", temp_filename);
-        free(original_content);
-        fclose(src);
-        return;
-    }
-    original_content[file_size] = '\0';
-    fclose(src);
-
-    char* cleaned_content = advanced_cleanup_markdown(original_content);
-
-    if (cleaned_content)
-    {
-        fwrite(cleaned_content, 1, strlen(cleaned_content), dest);
-        free(cleaned_content);
-    }
-    else
-    {
-        // if cleanup failed, write original content
-        fwrite(original_content, 1, file_size, dest);
-    }
-
-    free(original_content);
 }
 
 // NEW: In-place string replacement (from https://stackoverflow.com/a/3241374)
@@ -845,120 +774,6 @@ static char* remove_error_references(const char* content)
     char* result = str_replace(temp7, " o\n", " -\n");
     free(temp7);
 
-    return result;
-}
-
-// Feature 2: Detect and remove repeating headers/footers that appear on every page
-static char* is_repeating_header_footer(const char* line, char** known_patterns, int* pattern_counts, int max_patterns)
-{
-    if (!line || !known_patterns || !pattern_counts) return NULL;
-    
-    // Skip empty lines and very short lines
-    size_t len = strlen(line);
-    if (len < 5) return NULL;
-    
-    // Create a normalized version of the line (trim whitespace, remove page numbers)
-    char* normalized = malloc(len + 1);
-    if (!normalized) return NULL;
-    
-    // Copy and normalize: remove leading/trailing whitespace, normalize spaces
-    const char* src = line;
-    char* dst = normalized;
-    
-    // Skip leading whitespace
-    while (*src && (*src == ' ' || *src == '\t' || *src == '\n' || *src == '\r')) src++;
-    
-    // Copy content, normalizing spaces and removing trailing digits/page numbers
-    while (*src) {
-        if (*src == ' ' || *src == '\t') {
-            if (dst > normalized && *(dst-1) != ' ') {
-                *dst++ = ' ';
-            }
-        } else if (*src != '\n' && *src != '\r') {
-            *dst++ = *src;
-        }
-        src++;
-    }
-    
-    // Remove trailing whitespace and page numbers
-    while (dst > normalized && (*(dst-1) == ' ' || *(dst-1) == '\t' || 
-           (*(dst-1) >= '0' && *(dst-1) <= '9'))) {
-        dst--;
-    }
-    *dst = '\0';
-    
-    // If normalized line is too short, ignore it
-    if (strlen(normalized) < 5) {
-        free(normalized);
-        return NULL;
-    }
-    
-    // Check if this pattern already exists
-    for (int i = 0; i < max_patterns; i++) {
-        if (known_patterns[i] && strcmp(known_patterns[i], normalized) == 0) {
-            pattern_counts[i]++;
-            free(normalized);
-            return known_patterns[i]; // Return existing pattern
-        }
-    }
-    
-    // Add new pattern if we have space
-    for (int i = 0; i < max_patterns; i++) {
-        if (!known_patterns[i]) {
-            known_patterns[i] = normalized;
-            pattern_counts[i] = 1;
-            return known_patterns[i];
-        }
-    }
-    
-    free(normalized);
-    return NULL;
-}
-
-__attribute__((unused))
-static char* remove_repeating_headers_footers(const char* content, int total_pages)
-{
-    if (!content || total_pages < 3) return strdup(content); // Need at least 3 pages to detect patterns
-    
-    char* known_patterns[MAX_PATTERNS] = {0};
-    int pattern_counts[MAX_PATTERNS] = {0};
-    
-    // First pass: identify potential repeating patterns
-    char* temp_content = strdup(content);
-    char* line = strtok(temp_content, "\n");
-    
-    while (line) {
-        // Check if this line could be a header/footer
-        size_t line_len = strlen(line);
-        if (line_len > 5 && line_len < 200) { // Reasonable header/footer length
-            is_repeating_header_footer(line, known_patterns, pattern_counts, MAX_PATTERNS);
-        }
-        line = strtok(NULL, "\n");
-    }
-    free(temp_content);
-    
-    // Second pass: remove patterns that appear frequently (likely headers/footers)
-    char* result = strdup(content);
-    int min_occurrences = (total_pages >= 10) ? (total_pages / 3) : 2; // Appear on at least 1/3 of pages
-    
-    for (int i = 0; i < MAX_PATTERNS; i++) {
-        if (known_patterns[i] && pattern_counts[i] >= min_occurrences) {
-            // Remove this repeating pattern
-            char* new_result = str_replace(result, known_patterns[i], "");
-            if (new_result) {
-                free(result);
-                result = new_result;
-            }
-        }
-    }
-    
-    // Cleanup allocated patterns
-    for (int i = 0; i < MAX_PATTERNS; i++) {
-        if (known_patterns[i]) {
-            free(known_patterns[i]);
-        }
-    }
-    
     return result;
 }
 
@@ -1442,24 +1257,91 @@ static char* remove_standalone_horizontal_rules(const char* content)
     return result;
 }
 
-// Fix #4: Normalize excessive newlines (3+ becomes 2)
 static char* normalize_excessive_newlines(const char* content)
 {
     if (!content) return NULL;
-    
-    char* temp1 = str_replace((char*)content, "\n\n\n\n", "\n\n");
-    if (!temp1) return NULL;
-    
-    char* temp2 = str_replace(temp1, "\n\n\n", "\n\n");
-    free(temp1);
-    if (!temp2) return NULL;
-    
-    // Run again to catch any remaining cases
-    char* result = str_replace(temp2, "\n\n\n", "\n\n");
-    free(temp2);
-    
+
+    size_t len = strlen(content);
+    char* result = malloc(len * 3 + 1);
+    if (!result) return NULL;
+
+    const char* src = content;
+    char* dst = result;
+
+    int at_line_start = 1;
+    int in_newline = 0;
+    int in_table = 0;
+
+    while (*src)
+    {
+        // collapse multiple newlines
+        if (*src == '\n')
+        {
+            if (!in_newline)
+                *dst++ = '\n';
+            in_newline = 1;
+            at_line_start = 1;
+            src++;
+            continue;
+        }
+
+        // check line starts
+        if (at_line_start)
+        {
+            const char* look = src;
+            while (*look == ' ' || *look == '\t') look++;
+
+            // entering table block
+            if (*look == '|')
+            {
+                if (!in_table)
+                {
+                    // add blank line before table start
+                    if (dst > result && dst[-1] != '\n') *dst++ = '\n';
+                    if (dst - result >= 2 && dst[-2] != '\n') *dst++ = '\n';
+                    in_table = 1;
+                }
+            }
+            else
+            {
+                // leaving table block
+                if (in_table)
+                {
+                    // ensure one blank line after table
+                    if (dst > result && dst[-1] != '\n') *dst++ = '\n';
+                    if (dst - result >= 2 && dst[-2] != '\n') *dst++ = '\n';
+                    in_table = 0;
+                }
+
+                // headers / bold sections
+                if (*look == '#' || (*look == '*' && look[1] == '*'))
+                {
+                    if (dst > result && dst[-1] != '\n') *dst++ = '\n';
+                    if (dst - result >= 2 && dst[-2] != '\n') *dst++ = '\n';
+                }
+            }
+        }
+
+        *dst++ = *src++;
+        in_newline = 0;
+        at_line_start = (*src == '\n');
+    }
+
+    // close out table if file ends with one
+    if (in_table)
+    {
+        if (dst > result && dst[-1] != '\n') *dst++ = '\n';
+        if (dst - result >= 2 && dst[-2] != '\n') *dst++ = '\n';
+    }
+
+    if (dst == result || dst[-1] != '\n')
+        *dst++ = '\n';
+
+    *dst = '\0';
     return result;
 }
+
+
 
 // Fix #2: Bold text consolidation (**text** **more** -> **text more**)
 static char* merge_consecutive_bold_spans(const char* content)
@@ -1936,7 +1818,7 @@ static char* python_table_cleanup_markdown(const char* content)
             if (chunk) {
                 char* norm = normalize_excessive_newlines(chunk);
                 if (norm) {
-                    char* clean = advanced_cleanup_markdown(norm);
+                    char* clean = minimal_python_cleanup(norm);
                     if (clean) {
                         strcat(result, clean);
                         free(clean);
@@ -2045,6 +1927,19 @@ static char* advanced_cleanup_markdown(const char* content)
     char* result = temp17;
 
     return result;
+}
+
+static char* minimal_python_cleanup(const char* content)
+{
+    if (!content) return NULL;
+
+    char* unicode_fixed = normalize_unicode_gremlins(content);
+    if (!unicode_fixed) return NULL;
+
+    char* compacted = normalize_excessive_newlines(unicode_fixed);
+    free(unicode_fixed);
+
+    return compacted;
 }
 
 // Worker thread function declarations
@@ -2398,14 +2293,6 @@ static int batch_buffer_flush(BatchBuffer* buffer)
     return 0;
 }
 
-static void batch_buffer_reset(BatchBuffer* buffer)
-{
-    if (buffer)
-    {
-        buffer->length = 0;
-    }
-}
-
 // Reusable span array functions
 
 static void reusable_spans_init(ReusableSpanArray* spans)
@@ -2429,193 +2316,6 @@ static void reusable_spans_reset(ReusableSpanArray* spans)
     {
         spans->text_buffers[i][0] = '\0';
     }
-}
-
-// Generate markdown for a single span directly into batch buffer
-
-// New function for span-level formatting without header logic
-static int append_markdown_for_span_no_header(BatchBuffer* buffer, TextSpan* span)
-{
-    if (!buffer || !span || !span->text) return -1;
-
-    // For non-header lines: apply span-level formatting
-    // Python order (lines 707-714): mono, bold, italic, strikeout
-    char prefix[32] = "";
-    char suffix[32] = "";
-
-    // Build prefix in Python order: mono, bold, italic, strikeout
-    if (span->mono)
-    {
-        strcat(prefix, "`");
-    }
-    if (span->bold)
-    {
-        strcat(prefix, "**");
-    }
-    if (span->italic)
-    {
-        strcat(prefix, "_");
-    }
-    if (span->strikeout)
-    {
-        strcat(prefix, "~~");
-    }
-
-    // Suffix is in reverse order: strikeout, italic, bold, mono
-    if (span->strikeout)
-    {
-        strcat(suffix, "~~");
-    }
-    if (span->italic)
-    {
-        strcat(suffix, "_");
-    }
-    if (span->bold)
-    {
-        strcat(suffix, "**");
-    }
-    if (span->mono)
-    {
-        strcat(suffix, "`");
-    }
-
-    // Apply formatting
-    if (strlen(prefix) > 0)
-    {
-        if (batch_buffer_append(buffer, prefix) != 0) return -1;
-    }
-
-    // Strip trailing whitespace from span text (matching Python: s['text'].strip())
-    char* text = span->text;
-    while (*text == ' ' || *text == '\t') text++;
-    size_t len = strlen(text);
-    while (len > 0 && (text[len-1] == ' ' || text[len-1] == '\t' || text[len-1] == '\n'))
-    {
-        len--;
-    }
-    char temp_text[MAX_SPAN_TEXT_SIZE];
-    strncpy(temp_text, text, len);
-    temp_text[len] = '\0';
-
-    if (batch_buffer_append(buffer, temp_text) != 0) return -1;
-
-    if (strlen(suffix) > 0)
-    {
-        if (batch_buffer_append(buffer, suffix) != 0) return -1;
-    }
-
-    // Add space after span (Python adds space in line 719)
-    if (batch_buffer_append(buffer, " ") != 0) return -1;
-
-    return 0;
-}
-
-// Keep the old function for compatibility (now unused)
-static int append_markdown_for_span(BatchBuffer* buffer, TextSpan* span, FontAnalyzer* analyzer)
-{
-    if (!buffer || !span || !span->text) return -1;
-
-    // Get header prefix if this is a header
-    const char* header_prefix = "";
-    int is_likely_header = 0;
-
-    if (analyzer)
-    {
-        int font_size = (int)round(span->size);
-
-        if (font_size >= 0 && font_size < MAX_FONT_SIZE &&
-            analyzer->header_mapping[font_size][0] != '\0')
-        {
-            // Only apply header formatting if this looks like an actual header:
-            // - Text is relatively short (likely a title/heading)
-            // - Text doesn't end with lowercase or punctuation (not mid-sentence)
-            // - Text has reasonable length for a header
-            size_t text_len = strlen(span->text);
-            
-            if (text_len > 0 && text_len < 200) // Headers shouldn't be too long
-            {
-                char last_char = span->text[text_len - 1];
-                // Check if it looks like a header (doesn't end with sentence punctuation)
-                if (last_char != '.' && last_char != ',' && last_char != ';' && 
-                    last_char != ':' && last_char != '?' && last_char != '!')
-                {
-                    // Also check if it's not all whitespace or mostly numbers
-                    int has_alpha = 0;
-                    for (size_t i = 0; i < text_len; i++)
-                    {
-                        if (isalpha(span->text[i]))
-                        {
-                            has_alpha = 1;
-                            break;
-                        }
-                    }
-                    
-                    if (has_alpha)
-                    {
-                        header_prefix = analyzer->header_mapping[font_size];
-                        is_likely_header = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Apply markdown formatting
-    int bold = span->bold;
-    int italic = span->italic;
-    int mono = span->mono;
-
-    // Build the formatted text
-    if (is_likely_header && strlen(header_prefix) > 0)
-    {
-        batch_buffer_append(buffer, header_prefix);
-    }
-
-    if (mono)
-    {
-        batch_buffer_append(buffer, "`");
-    }
-    else
-    {
-        if (bold && italic)
-        {
-            batch_buffer_append(buffer, "***");
-        }
-        else if (bold)
-        {
-            batch_buffer_append(buffer, "**");
-        }
-        else if (italic)
-        {
-            batch_buffer_append(buffer, "*");
-        }
-    }
-
-    // Add the actual text
-    batch_buffer_append(buffer, span->text);
-
-    // Close formatting tags (in reverse order)
-    if (mono)
-    {
-        batch_buffer_append(buffer, "`");
-    }
-    else
-    {
-        if (bold && italic)
-        {
-            batch_buffer_append(buffer, "***");
-        }
-        else if (bold)
-        {
-            batch_buffer_append(buffer, "**");
-        }
-        else if (italic)
-        {
-            batch_buffer_append(buffer, "*");
-        }
-    }
-
-    return 0;
 }
 
 // Font analyzer functions
@@ -2810,50 +2510,6 @@ const char* get_header_id_from_analyzer(TextSpan* span, void* user_data)
     return "";
 }
 
-// Page parameters functions
-
-static PageParams* create_page_params(void)
-{
-    PageParams* params = malloc(sizeof(PageParams));
-
-    if (!params) return NULL;
-
-    memset(params, 0, sizeof(PageParams));
-
-    return params;
-}
-
-static void destroy_page_params(PageParams* params)
-{
-    if (!params) return;
-
-    free(params);
-}
-
-static void init_page_params(PageParams* params, fz_page* page __attribute__((unused)), fz_rect clip)
-{
-    if (!params) return;
-
-    params->clip = clip;
-
-    params->textpage = NULL;
-}
-
-// OCR page detection (matching Python exactly)
-
-static int page_is_ocr(fz_context* ctx, fz_page* page)
-{
-    // Check if page exclusively contains OCR text (ignore-text)
-
-    // For simplicity, we'll return 0 for now but this should be enhanced
-
-    (void)ctx; // Suppress unused parameter warning
-
-    (void)page; // Suppress unused parameter warning
-
-    return 0;
-}
-
 // Text formatting utilities
 
 static int is_bold(int flags, int char_flags)
@@ -2878,75 +2534,6 @@ static int is_strikeout(int char_flags)
 {
     // Python: s["char_flags"] & 1
     return char_flags & 1;
-}
-
-// Stub implementations for removed functions
-
-static int extract_annotations(fz_context* ctx, fz_page* page, PageParams* params)
-{
-    (void)ctx;
-    (void)page;
-    (void)params;
-
-    return 0;
-}
-
-static int extract_links(fz_context* ctx, fz_page* page, PageParams* params)
-{
-    (void)ctx;
-    (void)page;
-    (void)params;
-
-    return 0;
-}
-
-static char* resolve_span_link(LinkInfo* links, int link_count, fz_rect span_bbox)
-{
-    (void)links;
-    (void)link_count;
-    (void)span_bbox;
-
-    return NULL;
-}
-
-static int find_column_boxes(fz_context* ctx, fz_page* page, PageParams* params)
-{
-    (void)ctx;
-    (void)page;
-    (void)params;
-
-    return 0;
-}
-
-static void sort_reading_order(fz_rect* rects, int count)
-{
-    (void)rects;
-    (void)count;
-}
-
-static int intersects_rects(fz_rect rect, fz_rect* rect_list, int count)
-{
-    (void)rect;
-    (void)rect_list;
-    (void)count;
-
-    return 0;
-}
-
-static int is_in_rects(fz_rect rect, fz_rect* rect_list, int count)
-{
-    (void)rect;
-    (void)rect_list;
-    (void)count;
-
-    return 0;
-}
-
-static void process_text_in_rect(fz_context* ctx, PageParams* params, fz_rect text_rect)
-{
-    (void)ctx;
-    (void)params;
-    (void)text_rect;
 }
 
 int get_header_level_from_font(TextSpan* span, FontAnalyzer* analyzer)

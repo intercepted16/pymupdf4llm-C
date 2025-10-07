@@ -41,10 +41,10 @@ def to_markdown(
     output_path = Path(output_path) if output_path else pdf_path.with_suffix(".md")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    lib_path = config.resolve_lib_path()
-    use_batch = config.use_batch_callback
-
     if _bindings is not None:
+        lib_path = config.resolve_lib_path()
+        use_batch = config.use_batch_callback
+
         try:
             if use_batch:
                 success = _bindings.convert_pdf_with_batch_callback(
@@ -62,7 +62,10 @@ def to_markdown(
             _LOGGER.warning("Compiled library missing, falling back to Python implementation.")
             success = False
         except OSError as exc:
-            _LOGGER.warning("Failed to load compiled library (%s), falling back to Python implementation.", exc)
+            _LOGGER.warning(
+                "Failed to load compiled library (%s), falling back to Python implementation.",
+                exc,
+            )
             success = False
 
         if success:

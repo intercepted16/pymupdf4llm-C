@@ -16,9 +16,15 @@
 // Constants and Struct Definitions
 // =============================================================================
 
-#define EPSILON 2.0f        // Epsilon for float comparisons, used in clustering.
-#define MAX_CANDIDATES 100  // Maximum number of table candidates to consider on a page.
-#define MAX_BLOCKS 3000     // Maximum number of text blocks to process on a page.
+#define EPSILON 2.0f         // Epsilon for float comparisons, used in clustering.
+#define MAX_CANDIDATES 100   // Maximum number of table candidates to consider on a page.
+#define MAX_BLOCKS 3000      // Maximum number of text blocks to process on a page.
+#define MAX_LINES 2048       // Maximum number of vector lines captured per page.
+#define MAX_LINE_CLUSTERS 64 // Maximum number of clusters derived from vector lines.
+#define LINE_LENGTH_MIN 20.0f
+#define LINE_WIDTH_MAX 3.0f
+#define LINE_AXIS_TOLERANCE 1.5f
+#define LINE_CLUSTER_GAP 8.0f
 
 // Represents a potential table region found on a page.
 typedef struct
@@ -60,6 +66,52 @@ typedef struct
     fz_rect bbox;
     int index;
 } indexed_rect_t;
+
+typedef struct
+{
+    float x0, y0;
+    float x1, y1;
+    float width;
+    int orientation; // 0 = horizontal, 1 = vertical
+} detected_line_t;
+
+typedef struct
+{
+    detected_line_t lines[MAX_LINES];
+    int count;
+} line_collection_t;
+
+typedef struct
+{
+    fz_rect bbox;
+    int horizontal_count;
+    int vertical_count;
+    float line_score;
+} line_cluster_t;
+
+typedef struct
+{
+    line_cluster_t clusters[MAX_LINE_CLUSTERS];
+    int cluster_count;
+    float max_line_score;
+} line_analysis_t;
+
+typedef struct
+{
+    fz_device super;
+    line_collection_t* collection;
+} line_capture_device_t;
+
+typedef struct
+{
+    line_collection_t* collection;
+    fz_matrix ctm;
+    float stroke_width;
+    fz_point current;
+    fz_point start;
+    int has_current;
+    int has_start;
+} line_walker_state_t;
 
 // Helper functions
 static int is_white(const char* text)
@@ -106,6 +158,374 @@ static int compare_floats(const void* a, const void* b)
     if (fa < fb) return -1;
     if (fa > fb) return 1;
     return 0;
+}
+
+static void add_detected_line(line_collection_t* collection, float x0, float y0, float x1, float y1, float width)
+{
+    if (!collection || collection->count >= MAX_LINES) return;
+
+    float dx = fabsf(x1 - x0);
+    float dy = fabsf(y1 - y0);
+    float length = hypotf(dx, dy);
+    if (length < LINE_LENGTH_MIN) return;
+
+    int orientation = 0;
+    if (dx >= dy)
+    {
+        if (dy > LINE_AXIS_TOLERANCE) return;
+        orientation = 0;
+    }
+    else
+    {
+        if (dx > LINE_AXIS_TOLERANCE) return;
+        orientation = 1;
+    }
+
+    float effective_width = width > 0.0f ? width : fmaxf(fminf(dx, dy), 0.5f);
+    if (effective_width > LINE_WIDTH_MAX) return;
+
+    detected_line_t* line = &collection->lines[collection->count++];
+    line->x0 = x0;
+    line->y0 = y0;
+    line->x1 = x1;
+    line->y1 = y1;
+    line->width = effective_width;
+    line->orientation = orientation;
+}
+
+static fz_rect rect_from_line(const detected_line_t* line)
+{
+    fz_rect rect;
+    rect.x0 = fz_min(line->x0, line->x1);
+    rect.y0 = fz_min(line->y0, line->y1);
+    rect.x1 = fz_max(line->x0, line->x1);
+    rect.y1 = fz_max(line->y0, line->y1);
+
+    float half_width = fmaxf(line->width * 0.5f, 0.5f);
+    rect.x0 -= half_width;
+    rect.y0 -= half_width;
+    rect.x1 += half_width;
+    rect.y1 += half_width;
+
+    return rect;
+}
+
+static int rects_overlap_with_margin(fz_rect a, fz_rect b, float margin)
+{
+    a.x0 -= margin;
+    a.y0 -= margin;
+    a.x1 += margin;
+    a.y1 += margin;
+    b.x0 -= margin;
+    b.y0 -= margin;
+    b.x1 += margin;
+    b.y1 += margin;
+
+    if (a.x0 > b.x1 || a.x1 < b.x0) return 0;
+    if (a.y0 > b.y1 || a.y1 < b.y0) return 0;
+    return 1;
+}
+
+static void cluster_detected_lines(const line_collection_t* collection, line_analysis_t* analysis)
+{
+    if (!analysis)
+    {
+        return;
+    }
+
+    analysis->cluster_count = 0;
+    analysis->max_line_score = 0.0f;
+
+    if (!collection)
+    {
+        return;
+    }
+
+    for (int i = 0; i < collection->count; i++)
+    {
+        const detected_line_t* line = &collection->lines[i];
+        fz_rect line_rect = rect_from_line(line);
+
+        int cluster_index = -1;
+        for (int c = 0; c < analysis->cluster_count; c++)
+        {
+            if (rects_overlap_with_margin(analysis->clusters[c].bbox, line_rect, LINE_CLUSTER_GAP))
+            {
+                cluster_index = c;
+                break;
+            }
+        }
+
+        if (cluster_index < 0)
+        {
+            if (analysis->cluster_count >= MAX_LINE_CLUSTERS)
+            {
+                continue;
+            }
+            cluster_index = analysis->cluster_count++;
+            analysis->clusters[cluster_index].bbox = line_rect;
+            analysis->clusters[cluster_index].horizontal_count = 0;
+            analysis->clusters[cluster_index].vertical_count = 0;
+            analysis->clusters[cluster_index].line_score = 0.0f;
+        }
+
+        line_cluster_t* cluster = &analysis->clusters[cluster_index];
+        cluster->bbox = fz_rect_union_custom(cluster->bbox, line_rect);
+        if (line->orientation == 0)
+        {
+            cluster->horizontal_count++;
+        }
+        else
+        {
+            cluster->vertical_count++;
+        }
+    }
+
+    for (int i = 0; i < analysis->cluster_count; i++)
+    {
+        line_cluster_t* cluster = &analysis->clusters[i];
+        if ((cluster->horizontal_count >= 3 && cluster->vertical_count >= 2) ||
+            (cluster->horizontal_count >= 2 && cluster->vertical_count >= 3))
+        {
+            float raw_score = ((float)cluster->horizontal_count + (float)cluster->vertical_count) / 10.0f;
+            cluster->line_score = raw_score > 1.0f ? 1.0f : raw_score;
+        }
+        else
+        {
+            cluster->line_score = 0.0f;
+        }
+
+        if (cluster->line_score > analysis->max_line_score)
+        {
+            analysis->max_line_score = cluster->line_score;
+        }
+    }
+}
+
+static void add_line_segment(line_collection_t* collection, fz_point p0, fz_point p1, float stroke_width)
+{
+    float width = stroke_width > 0.0f ? stroke_width : fmaxf(fabsf(p1.x - p0.x), fabsf(p1.y - p0.y));
+    add_detected_line(collection, p0.x, p0.y, p1.x, p1.y, width);
+}
+
+static void line_walker_moveto(fz_context* ctx, void* arg, float x, float y)
+{
+    (void)ctx;
+    line_walker_state_t* state = (line_walker_state_t*)arg;
+    state->current = fz_transform_point_xy(x, y, state->ctm);
+    state->start = state->current;
+    state->has_current = 1;
+    state->has_start = 1;
+}
+
+static void line_walker_lineto(fz_context* ctx, void* arg, float x, float y)
+{
+    (void)ctx;
+    line_walker_state_t* state = (line_walker_state_t*)arg;
+    if (!state->has_current)
+    {
+        state->current = fz_transform_point_xy(x, y, state->ctm);
+        state->has_current = 1;
+        if (!state->has_start)
+        {
+            state->start = state->current;
+            state->has_start = 1;
+        }
+        return;
+    }
+
+    fz_point next = fz_transform_point_xy(x, y, state->ctm);
+    add_line_segment(state->collection, state->current, next, state->stroke_width);
+    state->current = next;
+}
+
+static void line_walker_curveto(fz_context* ctx, void* arg, float x1, float y1, float x2, float y2, float x3, float y3)
+{
+    (void)x1;
+    (void)y1;
+    (void)x2;
+    (void)y2;
+    line_walker_state_t* state = (line_walker_state_t*)arg;
+    state->current = fz_transform_point_xy(x3, y3, state->ctm);
+    if (!state->has_start)
+    {
+        state->start = state->current;
+        state->has_start = 1;
+    }
+    state->has_current = 1;
+    (void)ctx;
+}
+
+static void line_walker_closepath(fz_context* ctx, void* arg)
+{
+    (void)ctx;
+    line_walker_state_t* state = (line_walker_state_t*)arg;
+    if (state->has_current && state->has_start)
+    {
+        add_line_segment(state->collection, state->current, state->start, state->stroke_width);
+    }
+    state->has_current = 0;
+    state->has_start = 0;
+}
+
+static void line_capture_stroke_path(fz_context* ctx,
+                                     fz_device* dev_,
+                                     const fz_path* path,
+                                     const fz_stroke_state* stroke,
+                                     fz_matrix ctm,
+                                     fz_colorspace* colorspace,
+                                     const float* color,
+                                     float alpha,
+                                     fz_color_params color_params)
+{
+    (void)colorspace;
+    (void)color;
+    (void)alpha;
+    (void)color_params;
+
+    line_capture_device_t* dev = (line_capture_device_t*)dev_;
+    if (!dev || !dev->collection || !path) return;
+
+    float linewidth = stroke ? stroke->linewidth : 1.0f;
+    float expansion = fz_matrix_expansion(ctm);
+    float stroke_width = linewidth * expansion;
+
+    if (stroke_width > LINE_WIDTH_MAX * 4.0f)
+    {
+        return;
+    }
+
+    line_walker_state_t state = {0};
+    state.collection = dev->collection;
+    state.ctm = ctm;
+    state.stroke_width = stroke_width;
+
+    fz_path_walker walker = {
+        line_walker_moveto,
+        line_walker_lineto,
+        line_walker_curveto,
+        line_walker_closepath,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    };
+
+    fz_walk_path(ctx, path, &walker, &state);
+}
+
+static void line_capture_fill_path(fz_context* ctx,
+                                   fz_device* dev_,
+                                   const fz_path* path,
+                                   int even_odd,
+                                   fz_matrix ctm,
+                                   fz_colorspace* colorspace,
+                                   const float* color,
+                                   float alpha,
+                                   fz_color_params color_params)
+{
+    (void)even_odd;
+    (void)colorspace;
+    (void)color;
+    (void)alpha;
+    (void)color_params;
+
+    line_capture_device_t* dev = (line_capture_device_t*)dev_;
+    if (!dev || !dev->collection || !path) return;
+
+    fz_rect bbox = fz_bound_path(ctx, path, NULL, ctm);
+    float width = bbox.x1 - bbox.x0;
+    float height = bbox.y1 - bbox.y0;
+    float length = fmaxf(width, height);
+    float thickness = fminf(width, height);
+
+    if (length < LINE_LENGTH_MIN || thickness > LINE_WIDTH_MAX)
+    {
+        return;
+    }
+
+    float x0 = bbox.x0;
+    float x1 = bbox.x1;
+    float y0 = bbox.y0;
+    float y1 = bbox.y1;
+    if (width >= height)
+    {
+        float mid_y = (bbox.y0 + bbox.y1) * 0.5f;
+        add_detected_line(dev->collection, x0, mid_y, x1, mid_y, thickness);
+    }
+    else
+    {
+        float mid_x = (bbox.x0 + bbox.x1) * 0.5f;
+        add_detected_line(dev->collection, mid_x, y0, mid_x, y1, thickness);
+    }
+}
+
+static fz_device* new_line_capture_device(fz_context* ctx, line_collection_t* collection)
+{
+    line_capture_device_t* dev = fz_new_derived_device(ctx, line_capture_device_t);
+    dev->collection = collection;
+    dev->super.close_device = NULL;
+    dev->super.stroke_path = line_capture_stroke_path;
+    dev->super.fill_path = line_capture_fill_path;
+    return (fz_device*)dev;
+}
+
+static void analyze_page_lines(fz_context* ctx, fz_page* page, line_analysis_t* analysis)
+{
+    if (!analysis)
+    {
+        return;
+    }
+
+    analysis->cluster_count = 0;
+    analysis->max_line_score = 0.0f;
+
+    if (!page)
+    {
+        return;
+    }
+
+    line_collection_t collection;
+    collection.count = 0;
+    fz_device* volatile dev = NULL;
+
+    fz_try(ctx)
+    {
+        dev = new_line_capture_device(ctx, &collection);
+        fz_run_page(ctx, page, dev, fz_identity, NULL);
+    }
+    fz_always(ctx)
+    {
+        if (dev)
+        {
+            fz_drop_device(ctx, dev);
+        }
+    }
+    fz_catch(ctx)
+    {
+        collection.count = 0;
+    }
+
+    cluster_detected_lines(&collection, analysis);
+}
+
+static float compute_line_boost(fz_rect region, const line_cluster_t* clusters, int cluster_count)
+{
+    float best = 0.0f;
+    if (!clusters) return best;
+
+    for (int i = 0; i < cluster_count; i++)
+    {
+        if (clusters[i].line_score <= 0.0f) continue;
+        if (rects_overlap_with_margin(region, clusters[i].bbox, LINE_CLUSTER_GAP))
+        {
+            if (clusters[i].line_score > best)
+            {
+                best = clusters[i].line_score;
+            }
+        }
+    }
+    return best;
 }
 
 // Spatial grid functions
@@ -445,6 +865,7 @@ static table_features_t analyze_table_structure(fz_rect* blocks, int block_count
 static float is_likely_table(fz_rect* blocks, int block_count, fz_context* ctx,
                              fz_stext_page* textpage)
 {
+    (void)ctx;
     if (block_count < 4) return 0.0f;
 
     table_features_t features = analyze_table_structure(blocks, block_count, textpage);
@@ -469,7 +890,8 @@ static float is_likely_table(fz_rect* blocks, int block_count, fz_context* ctx,
 
 // Find table candidates using spatial clustering
 static int find_table_candidates(fz_rect* blocks, int block_count, table_candidate_t* candidates,
-                                 int max_candidates, fz_context* ctx, fz_stext_page* textpage)
+                                 int max_candidates, fz_context* ctx, fz_stext_page* textpage,
+                                 const line_cluster_t* line_clusters, int line_cluster_count)
 {
     int candidate_count = 0;
 
@@ -531,13 +953,16 @@ static int find_table_candidates(fz_rect* blocks, int block_count, table_candida
         // Analyze if this region looks like a table
         if (region_count >= 4)
         {
-            float score = is_likely_table(&blocks[region_blocks[0]], region_count, ctx, textpage);
-            if (score > 0.4f)
+            float text_score = is_likely_table(&blocks[region_blocks[0]], region_count, ctx, textpage);
+            float line_score = compute_line_boost(region, line_clusters, line_cluster_count);
+            float fused_score = line_score > 0.0f ? fmaxf(line_score, text_score * 0.8f) : text_score;
+
+            if (fused_score > 0.25f)
             { // Threshold for table classification
                 candidates[candidate_count].bbox = region;
                 candidates[candidate_count].block_start = region_blocks[0];
                 candidates[candidate_count].block_count = region_count;
-                candidates[candidate_count].score = score;
+                candidates[candidate_count].score = fused_score;
                 candidate_count++;
             }
         }
@@ -595,9 +1020,21 @@ extern int page_has_table(const char* pdf_path, int page_number)
             fz_page* page = fz_load_page(ctx, doc, p);
             if (!page) continue;
 
+            line_analysis_t line_analysis = {0};
+            analyze_page_lines(ctx, page, &line_analysis);
+            if (line_analysis.max_line_score >= 0.8f)
+            {
+                surrounding_table_found = 1;
+            }
+
             fz_stext_options opts = {0};
             fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, &opts);
-            if (!textpage) { fz_drop_page(ctx, page); continue; }
+            if (!textpage)
+            {
+                fz_drop_page(ctx, page);
+                if (surrounding_table_found) break;
+                continue;
+            }
 
             // Extract text blocks from the surrounding page.
             int surrounding_block_count = 0;
@@ -612,7 +1049,8 @@ extern int page_has_table(const char* pdf_path, int page_number)
             {
                 qsort(blocks, surrounding_block_count, sizeof(fz_rect), compare_rects_by_top_left);
                 table_candidate_t candidates[MAX_CANDIDATES];
-                int candidate_count = find_table_candidates(blocks, surrounding_block_count, candidates, MAX_CANDIDATES, ctx, textpage);
+                int candidate_count = find_table_candidates(blocks, surrounding_block_count, candidates, MAX_CANDIDATES, ctx, textpage,
+                                                          line_analysis.clusters, line_analysis.cluster_count);
 
                 // If a high-confidence table is found, set the flag and break early.
                 for (int i = 0; i < candidate_count; i++)
@@ -622,6 +1060,11 @@ extern int page_has_table(const char* pdf_path, int page_number)
                         break;
                     }
                 }
+            }
+
+            if (!surrounding_table_found && line_analysis.max_line_score >= 0.8f)
+            {
+                surrounding_table_found = 1;
             }
 
             fz_drop_stext_page(ctx, textpage);
@@ -642,6 +1085,13 @@ extern int page_has_table(const char* pdf_path, int page_number)
         fz_page* target_page = fz_load_page(ctx, doc, page_number);
         if (target_page)
         {
+            line_analysis_t line_analysis = {0};
+            analyze_page_lines(ctx, target_page, &line_analysis);
+            if (line_analysis.max_line_score > best_score)
+            {
+                best_score = line_analysis.max_line_score;
+            }
+
             fz_stext_options opts = {0};
             fz_stext_page* target_textpage = fz_new_stext_page_from_page(ctx, target_page, &opts);
             if (target_textpage)
@@ -658,7 +1108,8 @@ extern int page_has_table(const char* pdf_path, int page_number)
                 {
                     qsort(blocks, block_count, sizeof(fz_rect), compare_rects_by_top_left);
                     table_candidate_t candidates[MAX_CANDIDATES];
-                    int candidate_count = find_table_candidates(blocks, block_count, candidates, MAX_CANDIDATES, ctx, target_textpage);
+                    int candidate_count = find_table_candidates(blocks, block_count, candidates, MAX_CANDIDATES, ctx, target_textpage,
+                                                              line_analysis.clusters, line_analysis.cluster_count);
 
                     // Find the highest score among all candidates on the target page.
                     for (int i = 0; i < candidate_count; i++)
@@ -781,4 +1232,3 @@ extern int original_page_has_table(const char* pdf_path, int page_number)
     fz_drop_context(ctx);
     return has_table;
 }
-
