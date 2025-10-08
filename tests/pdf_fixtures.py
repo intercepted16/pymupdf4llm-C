@@ -71,10 +71,11 @@ class PDFTestFixtures:
 
     def create_pdf_with_table(self) -> Path:
         """Create a PDF with tables for testing.
-        
+
         Returns:
             Path to the created PDF file.
         """
+
         def builder(output_path: Path) -> None:
             doc = SimpleDocTemplate(str(output_path), pagesize=letter)
             styles = getSampleStyleSheet()
@@ -104,7 +105,9 @@ class PDFTestFixtures:
                 ["Widget C", "3", "$25.00", "$75.00"],
                 ["Total", "", "", "$175.00"],
             ]
-            table = Table(data, colWidths=[2 * inch, 1.5 * inch, 1.5 * inch, 1.5 * inch])
+            table = Table(
+                data, colWidths=[2 * inch, 1.5 * inch, 1.5 * inch, 1.5 * inch]
+            )
             table.setStyle(
                 TableStyle(
                     [
@@ -150,43 +153,55 @@ class PDFTestFixtures:
 
     def create_pdf_with_headings(self) -> Path:
         """Create a PDF with various heading levels.
-        
+
         Returns:
             Path to the created PDF file.
         """
+
         def builder(output_path: Path) -> None:
             doc = SimpleDocTemplate(str(output_path), pagesize=letter)
             styles = getSampleStyleSheet()
             story = []
             story.append(Paragraph("Main Title (H1)", styles["Heading1"]))
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("This is the main title of the document.", styles["Normal"]))
+            story.append(
+                Paragraph("This is the main title of the document.", styles["Normal"])
+            )
             story.append(Spacer(1, 0.3 * inch))
             story.append(Paragraph("Section Title (H2)", styles["Heading2"]))
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("This is a section with H2 heading.", styles["Normal"]))
+            story.append(
+                Paragraph("This is a section with H2 heading.", styles["Normal"])
+            )
             story.append(Spacer(1, 0.3 * inch))
             story.append(Paragraph("Subsection Title (H3)", styles["Heading3"]))
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("This is a subsection with H3 heading.", styles["Normal"]))
+            story.append(
+                Paragraph("This is a subsection with H3 heading.", styles["Normal"])
+            )
             story.append(Spacer(1, 0.3 * inch))
             story.append(Paragraph("Another Section (H2)", styles["Heading2"]))
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("Content under another H2 heading.", styles["Normal"]))
+            story.append(
+                Paragraph("Content under another H2 heading.", styles["Normal"])
+            )
             story.append(Spacer(1, 0.3 * inch))
             story.append(Paragraph("Nested Subsection (H3)", styles["Heading3"]))
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("This H3 is nested under the second H2.", styles["Normal"]))
+            story.append(
+                Paragraph("This H3 is nested under the second H2.", styles["Normal"])
+            )
             doc.build(story)
 
         return self._provide_fixture("sample_with_headings.pdf", builder)
 
     def create_pdf_with_formatting(self) -> Path:
         """Create a PDF with bold and italic text.
-        
+
         Returns:
             Path to the created PDF file.
         """
+
         def builder(output_path: Path) -> None:
             doc = SimpleDocTemplate(str(output_path), pagesize=letter)
             styles = getSampleStyleSheet()
@@ -214,19 +229,27 @@ class PDFTestFixtures:
                 )
             )
             story.append(Spacer(1, 0.2 * inch))
-            story.append(Paragraph("And even <b><i>bold italic</i></b> text.", styles["Normal"]))
+            story.append(
+                Paragraph("And even <b><i>bold italic</i></b> text.", styles["Normal"])
+            )
             story.append(Spacer(1, 0.3 * inch))
-            story.append(Paragraph("Multiple <b>bold words</b> and <b>more bold</b> text.", styles["Normal"]))
+            story.append(
+                Paragraph(
+                    "Multiple <b>bold words</b> and <b>more bold</b> text.",
+                    styles["Normal"],
+                )
+            )
             doc.build(story)
 
         return self._provide_fixture("sample_with_formatting.pdf", builder)
 
     def create_pdf_with_lists(self) -> Path:
         """Create a PDF with lists.
-        
+
         Returns:
             Path to the created PDF file.
         """
+
         def builder(output_path: Path) -> None:
             doc = SimpleDocTemplate(str(output_path), pagesize=letter)
             styles = getSampleStyleSheet()
@@ -283,10 +306,10 @@ class PDFTestFixtures:
 # Convenience functions for standalone usage
 def get_fixtures(test_data_dir: Optional[Path] = None) -> PDFTestFixtures:
     """Get a PDFTestFixtures instance.
-    
+
     Args:
         test_data_dir: Directory to store test PDFs.
-        
+
     Returns:
         Initialized PDFTestFixtures instance.
     """

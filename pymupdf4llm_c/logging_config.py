@@ -1,4 +1,5 @@
 """Centralised logging configuration utilities for the package."""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,9 @@ _DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 _LOGGER_CACHE: MutableMapping[str, logging.Logger] = {}
 
 
-def get_logger(name: str = "pymupdf4llm_c", level: int = logging.INFO) -> logging.Logger:
+def get_logger(
+    name: str = "pymupdf4llm_c", level: int = logging.INFO
+) -> logging.Logger:
     """Return a logger configured with a sensible default handler."""
     if name in _LOGGER_CACHE:
         return _LOGGER_CACHE[name]

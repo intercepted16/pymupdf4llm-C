@@ -1,134 +1,120 @@
 # PyMuPDF4LLM-C
 
-PyMuPDF4LLM-C pairs a high-throughput C pipeline with the reference
-`pymupdf4llm` Python package to generate clean Markdown from PDFs.
-It keeps the Python API you already know while preferring the native
-implementation for a 10-100× speed-up on table heavy documents.
+PyMuPDF4LLM-C provides a high-throughput C extractor for MuPDF that emits
+page-level JSON describing text, layout metadata, figures, and detected
+Tables. The Python package layers a small ctypes shim and convenience API on
+top.
 
-- C backend handles text extraction and table detection in parallel.
-- Python fallback (via `pymupdf4llm`) keeps things working when the
-  native library is unavailable.
-- Drop-in replacement for `pymupdf4llm.to_markdown` with extra tuning
-  hooks via `ConversionConfig`.
+## Highlights
+
+- **Native extractor** – `libtomd` walks each PDF page with MuPDF and writes
+  `page_XXX.json` artefacts containing block type, geometry, font metrics, and
+  basic heuristics used by retrieval pipelines.
+- **Python-friendly API** – `pymupdf4llm_c.to_json()` returns the generated
+  JSON paths or (optionally) the parsed payloads so it slots into existing
+  tooling.
+- **Single source of truth** – All heuristics, normalisation, and JSON
+  serialisation now live in dedicated C modules under `src/`, with public
+  headers exposed via `include/` for downstream extensions.
 
 ## Installation
 
-The project is published as `pymupdf4llm-c`. Install it from PyPI or from
-source:
+Install the published wheel or sdist directly from PyPI:
 
 ```bash
 pip install pymupdf4llm-c
-# or
-pip install .
 ```
 
-The Python fallback requires `pymupdf4llm`; it will be pulled in as a
-runtime dependency when you install this package.
+The wheel bundles a prebuilt `libtomd` for common platforms. If the shared
+library cannot be located at runtime you will receive a `LibraryLoadError`.
+Provide the path manually via `ConversionConfig(lib_path=...)` or the
+`PYMUPDF4LLM_C_LIB` environment variable.
 
-### Optional native build requirements
+## Building the native extractor
 
-Using the accelerated C extension assumes you have built the `libtomd`
-shared library. You will need:
-
-- CMake 3.20+
-- A C compiler toolchain (GCC/Clang on Linux, MSVC on Windows, Xcode on macOS)
-
-If the shared library is missing, the package will log a warning and
-continue with the pure Python path.
-
-## Quick start
-
-```python
-from pathlib import Path
-from pymupdf4llm_c import to_markdown
-
-pdf_path = Path("example.pdf")
-md_path = to_markdown(pdf_path)
-print(md_path.read_text()[:500])
-```
-
-`to_markdown` returns the path to the generated Markdown file. By default
-it writes the output next to the PDF (`example.md`).
-
-Pass `output_path` to control where the Markdown is written:
-
-```python
-md_path = to_markdown("reports/input.pdf", output_path="artifacts/output.md")
-```
-
-## Configuring the conversion
-
-Fine-tune the runtime behaviour with `ConversionConfig`:
-
-```python
-from pymupdf4llm_c import ConversionConfig, to_markdown
-
-config = ConversionConfig(
-    dpi=200,
-    use_batch_callback=True,
-    pymupdf_kwargs={"page_chunks": True, "write_images": True, "image_path": "images"},
-)
-
-md_path = to_markdown("report.pdf", config=config)
-```
-
-Key options:
-
-- `dpi`: Rasterisation DPI used by the fallback path for embedded images.
-- `lib_path`: Override the detected shared library (`Path` or string).
-- `use_batch_callback`: Toggle the high-throughput batch workflow. Disable
-  this if you built only the single-callback variant of the C library.
-- `pymupdf_kwargs`: Extra keyword arguments forwarded to
-  `pymupdf4llm.to_markdown` when the fallback runs.
-
-You can also guide discovery by setting the `PYMUPDF4LLM_C_LIB`
-environment variable to point at a specific `libtomd` binary.
-
-## Building the native library
-
-The repository ships with a convenience script that configures and builds
-the native component:
+When working from source (or on an unsupported platform) build the C library
+before invoking the Python API:
 
 ```bash
-./build.sh                      # Release build to build/native/
+./build.sh                      # Release build in build/native
 BUILD_DIR=build/debug ./build.sh # Custom build directory
 CMAKE_BUILD_TYPE=Debug ./build.sh
 ```
 
-Once built, the shared library is placed where `ConversionConfig` can find
-it automatically. If you prefer manual control, point `ConversionConfig.lib_path`
-or `PYMUPDF4LLM_C_LIB` to the produced binary.
+The script configures CMake, compiles `libtomd`, and leaves the artefact under
+`build/` so the Python package can find it. The headers are under `include/`
+if you need to consume the C API directly.
+
+## Python quick start
+
+```python
+from pathlib import Path
+
+from pymupdf4llm_c import ConversionConfig, ExtractionError, to_json
+
+pdf_path = Path("example.pdf")
+output_dir = pdf_path.with_name(f"{pdf_path.stem}_json")
+
+try:
+    json_files = to_json(pdf_path, output_dir=output_dir)
+    print(f"Generated {len(json_files)} files:")
+    for path in json_files:
+        print(f"  - {path}")
+except ExtractionError as exc:
+    print(f"Extraction failed: {exc}")
+```
+
+Pass `collect=True` to `to_json` if you want the parsed JSON structures
+returned instead of file paths. The optional `ConversionConfig` lets you
+override the shared library location:
+
+```python
+config = ConversionConfig(lib_path=Path("/opt/lib/libtomd.so"))
+results = to_json("report.pdf", config=config, collect=True)
+```
+
+## Command-line usage
+
+The package includes a minimal CLI that mirrors the Python API:
+
+```bash
+python -m pymupdf4llm_c.main input.pdf [output_dir]
+```
+
+If `output_dir` is omitted a sibling directory suffixed with `_json` is
+created. The command prints the destination and each JSON file that was
+written.
 
 ## Development workflow
 
-1. Create a virtual environment and install the project in editable mode:
+1. Create and activate a virtual environment, then install the project in
+   editable mode with the dev extras:
    ```bash
    python -m venv .venv
    source .venv/bin/activate
    pip install -e .[dev]
    ```
-2. Run formatting and static checks:
+2. Build the native extractor (`./build.sh`) so tests can load `libtomd`.
+3. Run linting and the test suite:
    ```bash
    ./lint.sh
-   ```
-3. Execute the test suite:
-   ```bash
    pytest
    ```
 
-`requirements-test.txt` captures the testing dependencies if you prefer
-installing them manually.
+`requirements-test.txt` lists the testing dependencies if you prefer manual
+installation.
 
 ## Troubleshooting
 
-- **Cannot load libtomd**: Ensure you ran `./build.sh` and that the produced
-  library is on disk. As a fallback, set `PYMUPDF4LLM_C_LIB` to point at the
-  exact `libtomd.*` file.
-- **Python fallback errors**: Confirm `pymupdf4llm` is installed and up to date
-  and that you are passing valid paths. The fallback writes directly to the
-  requested `output_path` when provided.
-- **Table extraction differences**: Toggle `use_batch_callback` or adjust
-  `pymupdf_kwargs` to mirror the exact behaviour of the pure Python pipeline.
+- **Library not found** – Build the extractor and ensure the resulting
+  `libtomd.*` is on disk. Set `PYMUPDF4LLM_C_LIB` or
+  `ConversionConfig(lib_path=...)` if the default search paths do not apply to
+  your environment.
+- **Build failures** – Verify MuPDF development headers and libraries are
+  installed and on the compiler's search path. Consult `CMakeLists.txt` for the
+  expected dependencies.
+- **Different JSON output** – The heuristics live entirely inside the C code
+  under `src/`. Adjust them there and rebuild to change behaviour.
 
 ## License
 

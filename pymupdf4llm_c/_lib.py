@@ -1,4 +1,5 @@
 """Utilities for locating the compiled ``libtomd`` shared object."""
+
 from __future__ import annotations
 
 import os

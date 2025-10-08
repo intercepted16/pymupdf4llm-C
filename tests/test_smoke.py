@@ -1,4 +1,5 @@
 """Smoke tests covering config and environment handling."""
+
 from __future__ import annotations
 
 from pathlib import Path

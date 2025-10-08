@@ -1,4 +1,5 @@
 """End-to-end tests for the JSON extraction pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -31,7 +32,9 @@ class BlockAssertions:
 
     def containing(self, text: str) -> List[dict]:
         needle = text.lower()
-        return [block for block in self._blocks if needle in block.get("text", "").lower()]
+        return [
+            block for block in self._blocks if needle in block.get("text", "").lower()
+        ]
 
     def has_block(self, block_type: str, *, text: str | None = None) -> bool:
         candidates = self.of_type(block_type)
@@ -87,7 +90,9 @@ class TestJSONExtraction:
             headings = blocks.of_type("heading")
             assert headings, "Headings should be classified"
             assert blocks.has_block("heading", text="Main Title"), "Missing H1 heading"
-            assert blocks.has_block("heading", text="Section Title"), "Missing H2 heading"
+            assert blocks.has_block(
+                "heading", text="Section Title"
+            ), "Missing H2 heading"
         finally:
             fixtures.cleanup()
 
@@ -137,6 +142,8 @@ class TestJSONExtraction:
             collected = to_json(pdf_path, output_dir=output_dir, collect=True)
             assert isinstance(collected, list)
             assert collected, "Collected result should contain block data"
-            assert any(block.get("type") == "heading" for page in collected for block in page)
+            assert any(
+                block.get("type") == "heading" for page in collected for block in page
+            )
         finally:
             fixtures.cleanup()

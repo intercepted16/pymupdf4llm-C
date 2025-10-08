@@ -1,4 +1,5 @@
 """Public facing API helpers for the MuPDF JSON extractor."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,11 +27,15 @@ def to_json(
     if not pdf_path.exists():
         raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
 
-    target_dir = Path(output_dir) if output_dir else pdf_path.with_name(f"{pdf_path.stem}_json")
+    target_dir = (
+        Path(output_dir) if output_dir else pdf_path.with_name(f"{pdf_path.stem}_json")
+    )
     target_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        json_paths = convert_pdf_to_json(pdf_path, target_dir, config.resolve_lib_path())
+        json_paths = convert_pdf_to_json(
+            pdf_path, target_dir, config.resolve_lib_path()
+        )
     except (LibraryLoadError, RuntimeError) as exc:
         raise ExtractionError(str(exc)) from exc
 

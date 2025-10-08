@@ -1,4 +1,5 @@
 """Top-level package for the MuPDF JSON extraction bindings."""
+
 from __future__ import annotations
 
 from importlib import metadata

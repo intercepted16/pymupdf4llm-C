@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Thin ctypes-based helpers for interacting with the MuPDF JSON extractor."""
+
 from __future__ import annotations
 
 import ctypes

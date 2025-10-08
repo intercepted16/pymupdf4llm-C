@@ -2,6 +2,7 @@ import re
 import sys
 from collections import Counter
 
+
 def extract_unicode_placeholders(filename, outname="unicode_report.txt"):
     # Regex to capture <U+XXXX> or <U+XXXXX>
     pattern = re.compile(r"<U\+[0-9A-F]{4,6}>")
@@ -30,4 +31,3 @@ if __name__ == "__main__":
     infile = sys.argv[1]
     outfile = sys.argv[2] if len(sys.argv) > 2 else "unicode_report.txt"
     extract_unicode_placeholders(infile, outfile)
-

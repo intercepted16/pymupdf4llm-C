@@ -58,7 +58,9 @@ class build_py(build_py_base):
         pattern = f"*{LIB_BASENAME}*{suffix}"
         candidates = sorted(p for p in search_dir.glob(pattern) if p.is_file())
         if not candidates:
-            raise FileNotFoundError(f"Unable to locate built {LIB_BASENAME} library in {search_dir}")
+            raise FileNotFoundError(
+                f"Unable to locate built {LIB_BASENAME} library in {search_dir}"
+            )
         return candidates[0]
 
 

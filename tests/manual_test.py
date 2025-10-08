@@ -1,4 +1,5 @@
 """Manual helper for invoking the JSON extractor from the command line."""
+
 from __future__ import annotations
 
 import sys
@@ -14,7 +15,11 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(1)
 
     pdf_path = Path(argv[0])
-    output_dir = Path(argv[1]) if len(argv) == 2 else pdf_path.with_suffix("").with_name(f"{pdf_path.stem}_json")
+    output_dir = (
+        Path(argv[1])
+        if len(argv) == 2
+        else pdf_path.with_suffix("").with_name(f"{pdf_path.stem}_json")
+    )
 
     json_paths = to_json(pdf_path, output_dir=output_dir)
     print(f"Extracted {len(json_paths)} page JSON files to {output_dir}")

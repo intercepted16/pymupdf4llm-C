@@ -1,4 +1,5 @@
 """Light-weight data models used across the public API."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
