@@ -1,0 +1,83 @@
+# Python bytecode and optimizations
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+wheelhouse/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+env.bak/
+.conda/
+.venv*/
+.env
+.envrc
+
+# Test and coverage reports
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Type checker and linter caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.dmypy.json
+
+# C / C++ build artifacts
+*.o
+*.obj
+*.a
+*.lo
+*.la
+*.slo
+*.out
+*.dSYM/
+*.pdb
+*.ilk
+
+# CMake generated files (when building in source)
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+CMakeTmp/
+compile_commands.json
+
+# Tooling caches
+.cache/
+.tox/
+.nox/
+.pybuilder/
+
+# Editor settings
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Editor swap files
+*.swp
+*.swo
+*~
