@@ -13,23 +13,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Install uv (Python build tool)
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      # Cache uv environments to avoid reinstalling dependencies
       - name: Cache uv environments
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/uv
+          path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
           restore-keys: |
             ${{ runner.os }}-uv-
 
+      # Install all system-level dependencies for MuPDF and CMake
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential \
+            libmupdf-dev mupdf mupdf-tools \
+            libharfbuzz-dev libfreetype6-dev \
+            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev \
+            libz-dev libcurl4-openssl-dev libcrypto++-dev
+
+      # Build your wheel and sdist
       - name: Build wheel and sdist
         run: uv build
 
+      # Upload built artifacts for the publish job
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -41,8 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
-      id-token: write  # required for trusted PyPI publishing
-      contents: write  # required if you also want GitHub Releases
+      id-token: write   # For trusted PyPI publishing
+      contents: write   # For GitHub releases
 
     steps:
       - uses: actions/download-artifact@v4
@@ -50,9 +64,11 @@ jobs:
           name: dist
           path: dist
 
+      # Publish to PyPI using trusted publishing
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      # Create GitHub Release with attached wheel and sdist
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,3 +76,4 @@ jobs:
           gh release create "${{ github.ref_name }}" dist/* \
             --repo "${{ github.repository }}" \
             --notes "Release ${{ github.ref_name }}"
+
