@@ -1,0 +1,4 @@
+include CMakeLists.txt
+recursive-include include *.h *.hpp
+recursive-include src *.c *.cc *.cpp *.h *.hpp
+prune build

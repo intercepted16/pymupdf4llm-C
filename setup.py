@@ -19,7 +19,7 @@ LIB_BASENAME = "tomd"
 class build_py(build_py_base):
     """Custom build that compiles the MuPDF shared library with CMake."""
 
-    def run(self) -> None:  # noqa: D401 - docstring inherited
+    def run(self) -> None:
         self._build_libtomd()
         super().run()
 
@@ -30,8 +30,15 @@ class build_py(build_py_base):
         build_dir.mkdir(parents=True, exist_ok=True)
         lib_output = build_dir / "lib"
 
-        configure_cmd = ["cmake", "..", f"-DCMAKE_BUILD_TYPE={cmake_build_type}"]
-        build_cmd = ["make", TARGET_NAME]
+        # Use the *real* source directory, not ".."
+        source_dir = ROOT
+
+        configure_cmd = [
+            "cmake",
+            str(source_dir),
+            f"-DCMAKE_BUILD_TYPE={cmake_build_type}",
+        ]
+        build_cmd = ["cmake", "--build", ".", "--target", TARGET_NAME]
 
         env = os.environ.copy()
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", str(os.cpu_count() or 1))
