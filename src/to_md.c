@@ -105,6 +105,41 @@ extern EXPORT int pdf_to_json(const char* pdf_path, const char* output_dir)
     return extract_document(pdf_path, out);
 }
 
+extern EXPORT int get_pdf_page_count(const char* pdf_path)
+{
+    if (!pdf_path)
+        return -1;
+
+    fz_context* ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
+    if (!ctx)
+        return -1;
+
+    fz_document* doc = NULL;
+    int page_count = -1;
+
+    fz_try(ctx)
+    {
+        fz_register_document_handlers(ctx);
+        doc = fz_open_document(ctx, pdf_path);
+        if (doc)
+        {
+            page_count = fz_count_pages(ctx, doc);
+        }
+    }
+    fz_always(ctx)
+    {
+        if (doc)
+            fz_drop_document(ctx, doc);
+        fz_drop_context(ctx);
+    }
+    fz_catch(ctx)
+    {
+        page_count = -1;
+    }
+
+    return page_count;
+}
+
 #ifndef NOLIB_MAIN
 int main(int argc, char** argv)
 {

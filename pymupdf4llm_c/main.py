@@ -6,7 +6,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from pathlib import Path
-from typing import List, Sequence
+from typing import Dict, List, Sequence
 
 from ._lib import get_default_library_path
 
@@ -45,6 +45,9 @@ def _load_library(lib_path: str | Path | None) -> ctypes.CDLL:
 
     lib.page_to_json_string.argtypes = [ctypes.c_char_p, ctypes.c_int]
     lib.page_to_json_string.restype = ctypes.c_char_p
+
+    lib.get_pdf_page_count.argtypes = [ctypes.c_char_p]
+    lib.get_pdf_page_count.restype = ctypes.c_int
 
     return lib
 
@@ -109,6 +112,39 @@ def extract_page_json(
         free_fn(result_ptr)
 
     return json_bytes.decode("utf-8")
+
+
+def get_pdf_metadata(
+    pdf_path: str | Path,
+    lib_path: str | Path | None = None,
+) -> Dict[str, str | int]:
+    """Extract metadata from a PDF document.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        lib_path: Optional path to the shared library.
+
+    Returns:
+        Dictionary with metadata including page_count and other fields.
+
+    Raises:
+        FileNotFoundError: If the PDF does not exist.
+        RuntimeError: If metadata extraction fails.
+    """
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
+
+    lib = _load_library(lib_path)
+    page_count = lib.get_pdf_page_count(str(pdf_path).encode("utf-8"))
+
+    if page_count < 0:
+        raise RuntimeError("Failed to extract PDF metadata")
+
+    # For now, return basic metadata. Can be extended with more fields.
+    return {
+        "page_count": page_count,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
