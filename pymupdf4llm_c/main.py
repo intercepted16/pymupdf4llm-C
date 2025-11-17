@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Sequence
 
@@ -36,7 +37,13 @@ def _resolve_library_path(provided: str | Path | None) -> Path:
     return candidate
 
 
+@lru_cache(maxsize=4)
 def _load_library(lib_path: str | Path | None) -> ctypes.CDLL:
+    """Load and cache the shared library.
+
+    Uses LRU cache to avoid reloading the same library repeatedly,
+    which improves performance for repeated calls.
+    """
     path = _resolve_library_path(lib_path)
     lib = ctypes.CDLL(str(path))
 

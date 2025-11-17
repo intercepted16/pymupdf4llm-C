@@ -47,6 +47,8 @@ if you need to consume the C API directly.
 
 ## Python quick start
 
+### Basic usage
+
 ```python
 from pathlib import Path
 
@@ -64,14 +66,64 @@ except ExtractionError as exc:
     print(f"Extraction failed: {exc}")
 ```
 
+### Advanced features
+
 Pass `collect=True` to `to_json` if you want the parsed JSON structures
-returned instead of file paths. The optional `ConversionConfig` lets you
-override the shared library location:
+returned instead of file paths:
+
+```python
+results = to_json("report.pdf", collect=True)
+for page_blocks in results:
+    for block in page_blocks:
+        print(f"Block type: {block['type']}, Text: {block.get('text', '')}")
+```
+
+Extract specific page ranges with the `pages` parameter:
+
+```python
+# Extract only pages 5-10 (0-indexed)
+json_files = to_json("large.pdf", pages=(5, 10))
+```
+
+Extract PDF metadata:
+
+```python
+from pymupdf4llm_c import get_metadata
+
+metadata = get_metadata("example.pdf")
+print(f"Page count: {metadata['page_count']}")
+```
+
+Use progress callbacks and verbose logging for long-running operations:
+
+```python
+def progress(current, total):
+    print(f"Processing page {current}/{total}")
+
+config = ConversionConfig(
+    progress_callback=progress,
+    verbose=True
+)
+json_files = to_json("large.pdf", config=config, pages=(0, 50))
+```
+
+Override the shared library location:
 
 ```python
 config = ConversionConfig(lib_path=Path("/opt/lib/libtomd.so"))
 results = to_json("report.pdf", config=config, collect=True)
 ```
+
+## Performance tips
+
+- **Page range filtering**: Extract only the pages you need using the `pages`
+  parameter to reduce processing time and memory usage.
+- **Library caching**: The shared library is automatically cached after first
+  load, improving performance for repeated calls.
+- **Batch processing**: Process multiple PDFs in sequence to benefit from
+  library caching.
+- **Progress callbacks**: Use progress callbacks to monitor long-running
+  operations without blocking.
 
 ## Command-line usage
 
