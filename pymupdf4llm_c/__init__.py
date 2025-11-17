@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib import metadata
 
-from .api import ExtractionError, get_metadata, to_json
+from .api import ExtractionError, batch_convert, get_metadata, to_json
 from .config import ConversionConfig
 
 __all__ = [
@@ -12,6 +12,7 @@ __all__ = [
     "ExtractionError",
     "to_json",
     "get_metadata",
+    "batch_convert",
     "__version__",
 ]
 

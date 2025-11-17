@@ -68,14 +68,28 @@ except ExtractionError as exc:
 
 ### Advanced features
 
-Pass `collect=True` to `to_json` if you want the parsed JSON structures
-returned instead of file paths:
+Collect parsed JSON structures instead of file paths:
 
 ```python
 results = to_json("report.pdf", collect=True)
 for page_blocks in results:
     for block in page_blocks:
         print(f"Block type: {block['type']}, Text: {block.get('text', '')}")
+```
+
+Process multiple PDFs in batch:
+
+```python
+from pymupdf4llm_c import batch_convert
+
+pdfs = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
+results = batch_convert(pdfs, continue_on_error=True)
+
+for pdf, output in results.items():
+    if isinstance(output, Exception):
+        print(f"Failed: {pdf}: {output}")
+    else:
+        print(f"Success: {pdf} -> {len(output)} pages")
 ```
 
 Extract specific page ranges with the `pages` parameter:

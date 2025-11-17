@@ -18,6 +18,7 @@ class LibraryLoadError(RuntimeError):
 
 def _resolve_library_path(provided: str | Path | None) -> Path:
     """Resolve a concrete filesystem path to the shared library."""
+    candidate: Path | None
     if provided is not None:
         candidate = Path(provided)
     else:

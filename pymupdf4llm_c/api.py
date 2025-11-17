@@ -165,4 +165,74 @@ def get_metadata(
         raise ExtractionError(str(exc)) from exc
 
 
-__all__ = ["ExtractionError", "to_json", "get_metadata"]
+def batch_convert(
+    pdf_paths: Sequence[str | Path],
+    *,
+    output_base_dir: str | Path | None = None,
+    config: ConversionConfig | None = None,
+    continue_on_error: bool = True,
+) -> Dict[Path, Sequence[Path] | Exception]:
+    """Convert multiple PDFs to JSON in batch.
+
+    Args:
+        pdf_paths: List of PDF file paths to process.
+        output_base_dir: Base directory for output. Each PDF gets its own
+            subdirectory. If None, output directories are created next to
+            each PDF.
+        config: Optional conversion configuration.
+        continue_on_error: If True, continue processing remaining PDFs
+            when one fails. If False, stop on first error.
+
+    Returns:
+        Dictionary mapping input PDF path to either the list of generated
+        JSON files or the exception that occurred.
+
+    Example:
+        >>> results = batch_convert(["doc1.pdf", "doc2.pdf"])
+        >>> for pdf, output in results.items():
+        ...     if isinstance(output, Exception):
+        ...         print(f"Failed: {pdf}: {output}")
+        ...     else:
+        ...         print(f"Success: {pdf} -> {len(output)} pages")
+    """
+    from .logging_config import get_logger
+
+    config = config or ConversionConfig()
+    logger = get_logger() if config.verbose else None
+    results: Dict[Path, Sequence[Path] | Exception] = {}
+
+    base_dir = Path(output_base_dir) if output_base_dir else None
+
+    for pdf_path_str in pdf_paths:
+        pdf_path = Path(pdf_path_str)
+
+        if logger:
+            logger.info("Processing %s", pdf_path)
+
+        try:
+            if base_dir:
+                output_dir = base_dir / f"{pdf_path.stem}_json"
+            else:
+                output_dir = pdf_path.with_name(f"{pdf_path.stem}_json")
+
+            json_paths = to_json(
+                pdf_path, output_dir=output_dir, config=config
+            )
+            results[pdf_path] = json_paths
+
+            if logger:
+                logger.info(
+                    "Completed %s: %d pages", pdf_path, len(json_paths)
+                )
+
+        except Exception as exc:
+            results[pdf_path] = exc
+            if logger:
+                logger.error("Failed %s: %s", pdf_path, exc)
+            if not continue_on_error:
+                break
+
+    return results
+
+
+__all__ = ["ExtractionError", "to_json", "get_metadata", "batch_convert"]

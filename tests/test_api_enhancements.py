@@ -78,3 +78,34 @@ class TestAPIEnhancements:
                 assert isinstance(collected[0], list)
         finally:
             fixtures.cleanup()
+
+    def test_batch_convert(self):
+        """Test batch processing multiple PDFs."""
+        from pymupdf4llm_c import batch_convert
+        from tests.pdf_fixtures import get_fixtures
+
+        fixtures = get_fixtures()
+        pdf1 = fixtures.create_pdf_with_headings()
+        pdf2 = fixtures.create_pdf_with_table()
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output_base = Path(tmpdir)
+
+                results = batch_convert(
+                    [pdf1, pdf2],
+                    output_base_dir=output_base,
+                    continue_on_error=True,
+                )
+
+                # Should have results for both PDFs
+                assert len(results) == 2
+                assert pdf1 in results
+                assert pdf2 in results
+
+                # Check that both succeeded
+                for pdf, output in results.items():
+                    assert not isinstance(output, Exception)
+                    assert len(output) >= 1
+        finally:
+            fixtures.cleanup()
