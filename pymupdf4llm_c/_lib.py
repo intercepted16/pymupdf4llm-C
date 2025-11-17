@@ -40,7 +40,7 @@ def _iter_search_directories(package_root: Path) -> Iterator[Path]:
     # Known setuptools build directory pattern.
     yield build_root / "lib" / _PACKAGE_NAME / "lib"
 
-    # Collect dynamically created "lib.<platform>" directories (e.g. lib.linux-x86_64-cpython-311).
+    # Collect dynamically created "lib.<platform>" directories.
     if build_root.exists():
         for child in build_root.iterdir():
             if child.is_dir() and child.name.startswith("lib"):

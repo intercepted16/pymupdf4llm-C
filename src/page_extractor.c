@@ -451,8 +451,8 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
     (void)error_buffer;
     (void)error_buffer_size;
 
-    fz_page* page = NULL;
-    fz_stext_page* textpage = NULL;
+    fz_page* volatile page = NULL;
+    fz_stext_page* volatile textpage = NULL;
     BlockArray blocks;
     block_array_init(&blocks);
 
@@ -589,8 +589,8 @@ EXPORT char* page_to_json_string(const char* pdf_path, int page_number)
             fz_throw(ctx, FZ_ERROR_GENERIC, "page out of range");
         }
 
-        fz_page* page = NULL;
-        fz_stext_page* textpage = NULL;
+        fz_page* volatile page = NULL;
+        fz_stext_page* volatile textpage = NULL;
         BlockArray blocks;
         block_array_init(&blocks);
 

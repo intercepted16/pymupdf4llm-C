@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv or len(argv) > 2:
         script = Path(sys.argv[0]).name
-        print(f"Usage: {script} <input.pdf> [output_dir]")
+        sys.stderr.write(f"Usage: {script} <input.pdf> [output_dir]\n")
         return 1
 
     pdf_path = Path(argv[0])
@@ -128,12 +128,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         json_files = convert_pdf_to_json(pdf_path, output_dir)
     except (FileNotFoundError, LibraryLoadError, RuntimeError) as exc:
-        print(f"error: {exc}")
+        sys.stderr.write(f"error: {exc}\n")
         return 1
 
-    print(f"Extracted {len(json_files)} JSON files to {output_dir}")
+    sys.stdout.write(f"Extracted {len(json_files)} JSON files to {output_dir}\n")
     for path in json_files:
-        print(f"  • {path}")
+        sys.stdout.write(f"  • {path}\n")
     return 0
 
 
