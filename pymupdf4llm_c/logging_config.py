@@ -13,7 +13,15 @@ _LOGGER_CACHE: MutableMapping[str, logging.Logger] = {}
 def get_logger(
     name: str = "pymupdf4llm_c", level: int = logging.INFO
 ) -> logging.Logger:
-    """Return a logger configured with a sensible default handler."""
+    """Return a logger configured with a sensible default handler.
+
+    Args:
+        name: Logger name, defaults to "pymupdf4llm_c".
+        level: Logging level, defaults to INFO.
+
+    Returns:
+        Configured logger instance with stream handler.
+    """
     if name in _LOGGER_CACHE:
         return _LOGGER_CACHE[name]
 
