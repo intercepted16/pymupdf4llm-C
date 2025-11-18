@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Thin ctypes-based helpers for interacting with the MuPDF JSON extractor."""
+"""Thin CFFI-based helpers for interacting with the MuPDF JSON extractor."""
 
 from __future__ import annotations
 
-import ctypes
 import sys
 from pathlib import Path
-from typing import List, Sequence
+from typing import Any, List, Sequence
 
+from pymupdf4llm_c.logging_config import get_logger
+
+from ._cffi import get_ffi, get_lib
 from ._lib import get_default_library_path
+
+logger = get_logger(__name__)
 
 
 class LibraryLoadError(RuntimeError):
@@ -36,17 +40,12 @@ def _resolve_library_path(provided: str | Path | None) -> Path:
     return candidate
 
 
-def _load_library(lib_path: str | Path | None) -> ctypes.CDLL:
+def _load_library(lib_path: str | Path | None):
+    """Load the shared library using CFFI."""
     path = _resolve_library_path(lib_path)
-    lib = ctypes.CDLL(str(path))
-
-    lib.pdf_to_json.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
-    lib.pdf_to_json.restype = ctypes.c_int
-
-    lib.page_to_json_string.argtypes = [ctypes.c_char_p, ctypes.c_int]
-    lib.page_to_json_string.restype = ctypes.c_char_p
-
-    return lib
+    ffi = get_ffi()
+    lib = get_lib(ffi, path)
+    return ffi, lib
 
 
 def convert_pdf_to_json(
@@ -62,8 +61,11 @@ def convert_pdf_to_json(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    lib = _load_library(lib_path)
-    rc = lib.pdf_to_json(str(pdf_path).encode("utf-8"), str(output_dir).encode("utf-8"))
+    _, lib = _load_library(lib_path)
+    pdf_path_bytes = str(pdf_path).encode("utf-8")
+    output_dir_bytes = str(output_dir).encode("utf-8")
+
+    rc = lib.pdf_to_json(pdf_path_bytes, output_dir_bytes)
     if rc != 0:
         raise RuntimeError(f"C extractor reported failure (exit code {rc})")
 
@@ -84,31 +86,22 @@ def extract_page_json(
     if not pdf_path.exists():
         raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
 
-    lib = _load_library(lib_path)
-    result_ptr = lib.page_to_json_string(str(pdf_path).encode("utf-8"), page_number)
-    if not result_ptr:
+    ffi, lib = _load_library(lib_path)
+    pdf_path_bytes = str(pdf_path).encode("utf-8")
+
+    result_ptr = lib.page_to_json_string(pdf_path_bytes, page_number)
+    if result_ptr == ffi.NULL:
         raise RuntimeError("C extractor returned NULL for page JSON")
 
-    json_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value or b""
+    # Convert the C string to Python string
+    json_string: str | Any = ffi.string(result_ptr).decode("utf-8")  # type: ignore[arg-type]
+    if not isinstance(json_string, str):
+        raise RuntimeError("Failed to decode JSON string from C extractor")
 
-    from ctypes import util as _ctypes_util
+    # Free the allocated memory
+    lib.free(result_ptr)
 
-    libc_name = _ctypes_util.find_library("c")
-    if sys.platform == "win32":
-        libc_name = "msvcrt"
-
-    libc = ctypes.CDLL(libc_name) if libc_name else ctypes.CDLL(None)
-    try:
-        free_fn = libc.free
-    except AttributeError:  # pragma: no cover - extremely rare runtimes
-        free_fn = None
-
-    if free_fn is not None:
-        free_fn.argtypes = [ctypes.c_void_p]
-        free_fn.restype = None
-        free_fn(result_ptr)
-
-    return json_bytes.decode("utf-8")
+    return json_string
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv or len(argv) > 2:
         script = Path(sys.argv[0]).name
-        print(f"Usage: {script} <input.pdf> [output_dir]")
+        logger.error(f"Usage: {script} <input.pdf> [output_dir]")
         return 1
 
     pdf_path = Path(argv[0])
@@ -128,12 +121,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         json_files = convert_pdf_to_json(pdf_path, output_dir)
     except (FileNotFoundError, LibraryLoadError, RuntimeError) as exc:
-        print(f"error: {exc}")
+        logger.error(f"error: {exc}")
         return 1
 
-    print(f"Extracted {len(json_files)} JSON files to {output_dir}")
+    logger.info(f"Extracted {len(json_files)} JSON files to {output_dir}")
     for path in json_files:
-        print(f"  • {path}")
+        logger.info(f"  • {path}")
     return 0
 
 

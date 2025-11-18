@@ -2,7 +2,7 @@
 
 PyMuPDF4LLM-C provides a high-throughput C extractor for MuPDF that emits
 page-level JSON describing text, layout metadata, figures, and detected
-Tables. The Python package layers a small ctypes shim and convenience API on
+Tables. The Python package layers a small CFFI shim and convenience API on
 top.
 
 ## Highlights
