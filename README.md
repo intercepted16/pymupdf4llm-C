@@ -47,6 +47,8 @@ if you need to consume the C API directly.
 
 ## Python quick start
 
+### Basic usage
+
 ```python
 from pathlib import Path
 
@@ -64,14 +66,119 @@ except ExtractionError as exc:
     print(f"Extraction failed: {exc}")
 ```
 
-Pass `collect=True` to `to_json` if you want the parsed JSON structures
-returned instead of file paths. The optional `ConversionConfig` lets you
-override the shared library location:
+### Advanced features
+
+Collect parsed JSON structures instead of file paths:
+
+```python
+results = to_json("report.pdf", collect=True)
+for page_blocks in results:
+    for block in page_blocks:
+        print(f"Block type: {block['type']}, Text: {block.get('text', '')}")
+```
+
+Process multiple PDFs in batch:
+
+```python
+from pymupdf4llm_c import batch_convert
+
+pdfs = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
+results = batch_convert(pdfs, continue_on_error=True)
+
+for pdf, output in results.items():
+    if isinstance(output, Exception):
+        print(f"Failed: {pdf}: {output}")
+    else:
+        print(f"Success: {pdf} -> {len(output)} pages")
+```
+
+Extract specific page ranges with the `pages` parameter:
+
+```python
+# Extract only pages 5-10 (0-indexed)
+json_files = to_json("large.pdf", pages=(5, 10))
+```
+
+Extract PDF metadata:
+
+```python
+from pymupdf4llm_c import get_metadata
+
+metadata = get_metadata("example.pdf")
+print(f"Page count: {metadata['page_count']}")
+```
+
+Use progress callbacks and verbose logging for long-running operations:
+
+```python
+def progress(current, total):
+    print(f"Processing page {current}/{total}")
+
+config = ConversionConfig(
+    progress_callback=progress,
+    verbose=True
+)
+json_files = to_json("large.pdf", config=config, pages=(0, 50))
+```
+
+Override the shared library location:
 
 ```python
 config = ConversionConfig(lib_path=Path("/opt/lib/libtomd.so"))
 results = to_json("report.pdf", config=config, collect=True)
 ```
+  
+ 
+## JSON output structure
+
+Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) containing an array of block objects:
+
+```json
+[
+  {
+    "type": "paragraph",
+    "text": "Extracted text content",
+    "bbox": [72.0, 100.5, 523.5, 130.2],
+    "font_size": 11.0,
+    "font_weight": "normal",
+    "page_number": 0,
+    "length": 22
+  }
+]
+```
+
+**Block types:** `paragraph`, `heading`, `table`, `list`, `figure`
+
+**Key fields:**
+- `bbox` – Bounding box as `[x0, y0, x1, y1]` in PDF points (useful for layout-aware extraction)
+- `type` – Block classification for semantic processing
+- `font_size`, `font_weight` – Styling metadata
+- Tables include `row_count`, `col_count`, `confidence`
+
+## Usage examples
+
+**Use bounding boxes for semantic boundaries:**
+- Extract content from specific page regions (e.g., left column in two-column layouts)
+- Identify spatial relationships between blocks (e.g., paragraphs near headings)
+- Split documents by vertical position (headers vs. body content)
+
+**RAG (Retrieval-Augmented Generation) integration:**
+- **Semantic chunking** – Natural content boundaries instead of arbitrary character splits
+- **Type-aware processing** – Handle headings, tables, and paragraphs differently
+- **Metadata filtering** – Use page numbers, font sizes, block types for smart retrieval
+- **Contextual chunks** – Include surrounding blocks for richer context windows
+- **Layout preservation** – Maintain reading order in complex multi-column documents
+
+## Performance tips
+
+- **Page range filtering**: Extract only the pages you need using the `pages`
+  parameter to reduce processing time and memory usage.
+- **Library caching**: The shared library is automatically cached after first
+  load, improving performance for repeated calls.
+- **Batch processing**: Process multiple PDFs in sequence to benefit from
+  library caching.
+- **Progress callbacks**: Use progress callbacks to monitor long-running
+  operations without blocking.
 
 ## Command-line usage
 
