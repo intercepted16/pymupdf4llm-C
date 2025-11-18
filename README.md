@@ -76,51 +76,6 @@ for page_blocks in results:
     for block in page_blocks:
         print(f"Block type: {block['type']}, Text: {block.get('text', '')}")
 ```
-
-Process multiple PDFs in batch:
-
-```python
-from pymupdf4llm_c import batch_convert
-
-pdfs = ["doc1.pdf", "doc2.pdf", "doc3.pdf"]
-results = batch_convert(pdfs, continue_on_error=True)
-
-for pdf, output in results.items():
-    if isinstance(output, Exception):
-        print(f"Failed: {pdf}: {output}")
-    else:
-        print(f"Success: {pdf} -> {len(output)} pages")
-```
-
-Extract specific page ranges with the `pages` parameter:
-
-```python
-# Extract only pages 5-10 (0-indexed)
-json_files = to_json("large.pdf", pages=(5, 10))
-```
-
-Extract PDF metadata:
-
-```python
-from pymupdf4llm_c import get_metadata
-
-metadata = get_metadata("example.pdf")
-print(f"Page count: {metadata['page_count']}")
-```
-
-Use progress callbacks and verbose logging for long-running operations:
-
-```python
-def progress(current, total):
-    print(f"Processing page {current}/{total}")
-
-config = ConversionConfig(
-    progress_callback=progress,
-    verbose=True
-)
-json_files = to_json("large.pdf", config=config, pages=(0, 50))
-```
-
 Override the shared library location:
 
 ```python
@@ -168,17 +123,6 @@ Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) conta
 - **Metadata filtering** – Use page numbers, font sizes, block types for smart retrieval
 - **Contextual chunks** – Include surrounding blocks for richer context windows
 - **Layout preservation** – Maintain reading order in complex multi-column documents
-
-## Performance tips
-
-- **Page range filtering**: Extract only the pages you need using the `pages`
-  parameter to reduce processing time and memory usage.
-- **Library caching**: The shared library is automatically cached after first
-  load, improving performance for repeated calls.
-- **Batch processing**: Process multiple PDFs in sequence to benefit from
-  library caching.
-- **Progress callbacks**: Use progress callbacks to monitor long-running
-  operations without blocking.
 
 ## Command-line usage
 
