@@ -73,6 +73,46 @@ config = ConversionConfig(lib_path=Path("/opt/lib/libtomd.so"))
 results = to_json("report.pdf", config=config, collect=True)
 ```
 
+## JSON output structure
+
+Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) containing an array of block objects:
+
+```json
+[
+  {
+    "type": "paragraph",
+    "text": "Extracted text content",
+    "bbox": [72.0, 100.5, 523.5, 130.2],
+    "font_size": 11.0,
+    "font_weight": "normal",
+    "page_number": 0,
+    "length": 22
+  }
+]
+```
+
+**Block types:** `paragraph`, `heading`, `table`, `list`, `figure`
+
+**Key fields:**
+- `bbox` – Bounding box as `[x0, y0, x1, y1]` in PDF points (useful for layout-aware extraction)
+- `type` – Block classification for semantic processing
+- `font_size`, `font_weight` – Styling metadata
+- Tables include `row_count`, `col_count`, `confidence`
+
+## Usage examples
+
+**Use bounding boxes for semantic boundaries:**
+- Extract content from specific page regions (e.g., left column in two-column layouts)
+- Identify spatial relationships between blocks (e.g., paragraphs near headings)
+- Split documents by vertical position (headers vs. body content)
+
+**RAG (Retrieval-Augmented Generation) integration:**
+- **Semantic chunking** – Natural content boundaries instead of arbitrary character splits
+- **Type-aware processing** – Handle headings, tables, and paragraphs differently
+- **Metadata filtering** – Use page numbers, font sizes, block types for smart retrieval
+- **Contextual chunks** – Include surrounding blocks for richer context windows
+- **Layout preservation** – Maintain reading order in complex multi-column documents
+
 ## Command-line usage
 
 The package includes a minimal CLI that mirrors the Python API:
