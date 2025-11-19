@@ -23,19 +23,10 @@ Install the Python package from PyPI:
 pip install pymupdf4llm-c
 ````
 
-For Rust, you can install with Cargo (you can't right now, this is WIP):
+For Rust, you can install with Cargo:
 ```bash
 cargo add pymupdf4llm-c
 ````
-
-or
-
-The Rust bindings are available by building the library and adding this crate as a dependency in your `Cargo.toml`:
-
-```toml
-[dependencies]
-pymupdf4llm_c = { path = "../pymupdf4llm-c" }
-```
 
 ## Building the native extractor
 

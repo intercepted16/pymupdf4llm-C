@@ -1,6 +1,6 @@
 [package]
 name = "pymupdf4llm-c"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Adit Bajaj"]
 description = "Inspired by `pymupdf4llm`, implements a C extractor that outputs high-quality Markdown/JSON."
