@@ -2,6 +2,14 @@
 name = "pymupdf4llm-c"
 version = "0.1.0"
 edition = "2024"
+authors = ["Adit Bajaj"]
+description = "Inspired by `pymupdf4llm`, implements a C extractor that outputs high-quality Markdown/JSON."
+license = "AGPL v3"
+repository = "https://github.com/intercepted16/pymupdf4llm-C"
+readme = "README.md"
+keywords = ["pdf", "json", "extraction", "bindings"]
+categories = ["parsing", "text-processing", "file-formats"]
+publish = true
 
 [dependencies]
 libc = "0.2"
@@ -10,7 +18,13 @@ serde_json = "1.0"
 [build-dependencies]
 num_cpus = "1.17.0"
 
-# Define the binary target
+# Binary target
 [[bin]]
 name = "pdf_to_json"
 path = "src/main.rs"
+
+# Optional: include/exclude files for publishing
+[package.metadata]
+# Include only what’s needed for crates.io
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+exclude = ["tests/**", "examples/**", "*.rs.bk", ".gitignore", ".github/**"]
