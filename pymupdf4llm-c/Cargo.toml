@@ -1,0 +1,16 @@
+[package]
+name = "pymupdf4llm-c"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2"
+serde_json = "1.0"
+
+[build-dependencies]
+num_cpus = "1.17.0"
+
+# Define the binary target
+[[bin]]
+name = "pdf_to_json"
+path = "src/main.rs"
