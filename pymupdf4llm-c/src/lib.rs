@@ -1,5 +1,5 @@
 use libc::c_void;
-use serde_json::Value;
+use serde::Deserialize; // Required for the custom struct
 use std::ffi::{CStr, CString, NulError};
 use std::fmt;
 use std::fs;
@@ -8,7 +8,7 @@ use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::str::Utf8Error;
 
-// Original C function
+// --- FFI to C library ---
 unsafe extern "C" {
     fn pdf_to_json(pdf_path: *const c_char, output_dir: *const c_char) -> i32;
     fn page_to_json_string(pdf_path: *const c_char, page_number: i32) -> *mut c_char;
@@ -69,6 +69,55 @@ impl fmt::Display for PdfError {
 
 impl std::error::Error for PdfError {}
 
+// --- Strongly Typed Block Struct ---
+
+#[derive(Debug, Deserialize)]
+pub struct Block {
+    // `type` is a keyword in Rust, so we use `r#type` to escape it.
+    // Serde automatically maps JSON key "type" to this field.
+    pub r#type: String,
+    
+    pub text: String,
+    
+    pub bbox: Vec<f64>,
+    
+    #[serde(default)]
+    pub font_size: f64,
+    
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    
+    #[serde(default)]
+    pub row_count: Option<u32>,
+    
+    #[serde(default)]
+    pub col_count: Option<u32>,
+}
+
+// --- Public API ---
+
+/// Extract all pages and parse the JSON payloads into strongly typed Blocks.
+pub fn to_json_collect<P, Q>(
+    pdf_path: P,
+    output_dir: Option<Q>,
+) -> Result<Vec<Vec<Block>>, PdfError>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    let files = to_json(pdf_path, output_dir)?;
+    let mut pages = Vec::with_capacity(files.len());
+
+    for path in files {
+        let contents = fs::read_to_string(&path)?;
+        // Deserializing into strict Block types instead of generic Value
+        let blocks: Vec<Block> = serde_json::from_str(&contents)?;
+        pages.push(blocks);
+    }
+
+    Ok(pages)
+}
+
 /// Extract an entire PDF into JSON files, returning the generated paths.
 pub fn to_json<P, Q>(pdf_path: P, output_dir: Option<Q>) -> Result<Vec<PathBuf>, PdfError>
 where
@@ -86,25 +135,6 @@ where
     convert_document(pdf_path, &target_dir)
 }
 
-/// Extract all pages and parse the JSON payloads into memory.
-pub fn to_json_collect<P, Q>(
-    pdf_path: P,
-    output_dir: Option<Q>,
-) -> Result<Vec<Vec<Value>>, PdfError>
-where
-    P: AsRef<Path>,
-    Q: AsRef<Path>,
-{
-    let files = to_json(pdf_path, output_dir)?;
-    let mut pages = Vec::with_capacity(files.len());
-    for path in files {
-        let contents = fs::read_to_string(&path)?;
-        let blocks: Vec<Value> = serde_json::from_str(&contents)?;
-        pages.push(blocks);
-    }
-    Ok(pages)
-}
-
 /// Extract a single page into an in-memory JSON string.
 pub fn extract_page_json<P>(pdf_path: P, page_number: usize) -> Result<String, PdfError>
 where
@@ -120,7 +150,9 @@ where
     }
 
     let pdf_c = path_to_cstring(pdf_path)?;
+
     let ptr = unsafe { page_to_json_string(pdf_c.as_ptr(), page_number as i32) };
+
     if ptr.is_null() {
         return Err(PdfError::NullResult);
     }
@@ -134,6 +166,8 @@ where
 
     Ok(json)
 }
+
+// --- Internal Helpers ---
 
 fn convert_document(pdf_path: &Path, target_dir: &Path) -> Result<Vec<PathBuf>, PdfError> {
     let pdf_c = path_to_cstring(pdf_path)?;
