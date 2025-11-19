@@ -40,7 +40,6 @@ def _iter_search_directories(package_root: Path) -> Iterator[Path]:
     # Known setuptools build directory pattern.
     yield build_root / "lib" / _PACKAGE_NAME / "lib"
 
-    # Collect dynamically created "lib.<platform>" directories (e.g. lib.linux-x86_64-cpython-311).
     if build_root.exists():
         for child in build_root.iterdir():
             if child.is_dir() and child.name.startswith("lib"):
@@ -78,10 +77,9 @@ def _iter_candidate_paths(package_root: Path) -> Iterator[Path]:
 
 @lru_cache(maxsize=1)
 def get_default_library_path() -> Path | None:
-    """Locate the packaged ``libtomd`` shared object if available.
+    """Attempt to locate the packaged ``libtomd`` shared library.
 
-    Returns ``None`` when the library cannot be found, allowing the caller to
-    fall back to the pure Python implementation.
+    Returns ``None`` when the library cannot be found.
     """
     package_root = Path(__file__).resolve().parent
 

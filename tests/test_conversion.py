@@ -2,148 +2,110 @@
 
 from __future__ import annotations
 
-import json
-import tempfile
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import List, Protocol
 
 import pytest
 
+from pymupdf4llm_c import to_json
+from pymupdf4llm_c.api import Block
+
 TEST_DATA_DIR = Path(__file__).parent / "test_data"
-NIST_PDF = TEST_DATA_DIR / "nist.pdf"
 
 
-def _load_blocks(paths: Sequence[Path]) -> List[dict]:
-    blocks: List[dict] = []
-    for path in sorted(paths):
-        with path.open("r", encoding="utf-8") as fh:
-            blocks.extend(json.load(fh))
-    return blocks
+class ExtractorCallable(Protocol):
+    """Protocol for the test fixture to allow type hinting."""
+
+    def __call__(self, filename: str) -> List[Block]:
+        """For type hinting."""
+        ...
 
 
-class BlockAssertions:
-    """Helper methods for asserting block properties within extracted JSON."""
+@pytest.fixture
+def extract_blocks(tmp_path: Path) -> ExtractorCallable:
+    """Fixture that returns a function.
 
-    def __init__(self, blocks: Iterable[dict]):
-        self._blocks = list(blocks)
+    The function processes a PDF and returns the flattened list of JSON blocks.
+    """
 
-    def of_type(self, block_type: str) -> List[dict]:
-        return [block for block in self._blocks if block.get("type") == block_type]
+    def _process(filename: str) -> List[Block]:
+        pdf_path = TEST_DATA_DIR / filename
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found: {pdf_path}")
 
-    def containing(self, text: str) -> List[dict]:
-        needle = text.lower()
-        return [
-            block for block in self._blocks if needle in block.get("text", "").lower()
-        ]
+        blocks = to_json(pdf_path, output_dir=tmp_path, collect=True)
+        return blocks
 
-    def has_block(self, block_type: str, *, text: str | None = None) -> bool:
-        candidates = self.of_type(block_type)
-        if text is None:
-            return len(candidates) > 0
-        needle = text.lower()
-        return any(needle in block.get("text", "").lower() for block in candidates)
+    return _process
+
+
+# --- Tests ---
 
 
 @pytest.mark.integration
 @pytest.mark.requires_pdf
-class TestJSONExtraction:
-    """End-to-end coverage for the new JSON extractor."""
+class TestJsonExtraction:
+    """End-to-end coverage for the JSON extractor."""
 
-    @pytest.fixture
-    def output_dir(self) -> Iterable[Path]:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            yield Path(tmpdir)
+    def test_table_detection(self, extract_blocks: ExtractorCallable):
+        """Test the extraction of tables."""
+        blocks = extract_blocks("sample_with_table.pdf")
 
-    def test_table_detection(self, output_dir: Path):
-        from pymupdf4llm_c import to_json
-        from tests.pdf_fixtures import get_fixtures
+        tables = [b for b in blocks if b.get("type") == "table"]
 
-        fixtures = get_fixtures()
-        pdf_path = fixtures.create_pdf_with_table()
+        assert tables, "Expected at least one table block"
+        for table in tables:
+            assert table.get("row_count", 0) >= 2
+            assert table.get("col_count", 0) >= 2
+            assert table.get("confidence", 0.0) >= 0.2
+            assert table.get("text", "") == ""
 
-        try:
-            json_files = to_json(pdf_path, output_dir=output_dir)
-            blocks = BlockAssertions(_load_blocks(json_files))
+    def test_heading_detection(self, extract_blocks: ExtractorCallable):
+        """Test the extraction of headings."""
+        blocks = extract_blocks("sample_with_headings.pdf")
 
-            tables = blocks.of_type("table")
-            assert tables, "Expected at least one table block"
-            for table in tables:
-                assert table.get("row_count", 0) >= 2
-                assert table.get("col_count", 0) >= 2
-                assert table.get("confidence", 0.0) >= 0.2
-                assert table.get("text", "") == ""
+        headings = [b for b in blocks if b.get("type") == "heading"]
+        assert headings, "Headings should be classified"
 
-        finally:
-            fixtures.cleanup()
+        # Helper for case-insensitive search
+        def has_text(text: str) -> bool:
+            needle = text.lower()
+            return any(needle in b.get("text", "").lower() for b in headings)
 
-    def test_heading_detection(self, output_dir: Path):
-        from pymupdf4llm_c import to_json
-        from tests.pdf_fixtures import get_fixtures
+        assert has_text("main title"), "Missing H1 heading"
+        assert has_text("section title"), "Missing H2 heading"
 
-        fixtures = get_fixtures()
-        pdf_path = fixtures.create_pdf_with_headings()
+    def test_list_detection(self, extract_blocks: ExtractorCallable):
+        """Test the extraction of lists."""
+        blocks = extract_blocks("sample_with_lists.pdf")
 
-        try:
-            json_files = to_json(pdf_path, output_dir=output_dir)
-            blocks = BlockAssertions(_load_blocks(json_files))
+        lists = [b for b in blocks if b.get("type") == "list"]
+        assert lists, "Expected list blocks for bullet content"
 
-            headings = blocks.of_type("heading")
-            assert headings, "Headings should be classified"
-            assert blocks.has_block("heading", text="Main Title"), "Missing H1 heading"
-            assert blocks.has_block(
-                "heading", text="Section Title"
-            ), "Missing H2 heading"
-        finally:
-            fixtures.cleanup()
+        has_item = any("first item" in b.get("text", "").lower() for b in lists)
+        assert has_item, "List content text was not preserved"
 
-    def test_list_detection(self, output_dir: Path):
-        from pymupdf4llm_c import to_json
-        from tests.pdf_fixtures import get_fixtures
+    def test_paragraph_presence(self, extract_blocks: ExtractorCallable):
+        """Test that paragraph text is extracted correctly."""
+        blocks = extract_blocks("sample_with_formatting.pdf")
 
-        fixtures = get_fixtures()
-        pdf_path = fixtures.create_pdf_with_lists()
+        paragraphs = [b for b in blocks if b.get("type") == "paragraph"]
+        assert paragraphs, "Paragraph text should be captured"
 
-        try:
-            json_files = to_json(pdf_path, output_dir=output_dir)
-            blocks = BlockAssertions(_load_blocks(json_files))
+        text_content = " ".join(b.get("text", "").lower() for b in paragraphs)
+        assert "bold text" in text_content
+        assert "italic text" in text_content
 
-            lists = blocks.of_type("list")
-            assert lists, "Expected list blocks for bullet content"
-            assert any("first item" in block.get("text", "").lower() for block in lists)
-        finally:
-            fixtures.cleanup()
+    def test_collect(self, tmp_path: Path):
+        """Test the 'collect' parameter which returns Python objects directly."""
+        pdf_path = TEST_DATA_DIR / "sample_with_headings.pdf"
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found: {pdf_path}")
 
-    def test_paragraph_presence(self, output_dir: Path):
-        from pymupdf4llm_c import to_json
-        from tests.pdf_fixtures import get_fixtures
+        blocks = to_json(pdf_path, output_dir=tmp_path, collect=True)
 
-        fixtures = get_fixtures()
-        pdf_path = fixtures.create_pdf_with_formatting()
+        assert isinstance(blocks, list)
+        assert blocks, "Result should contain page data"
 
-        try:
-            json_files = to_json(pdf_path, output_dir=output_dir)
-            blocks = BlockAssertions(_load_blocks(json_files))
-
-            paragraphs = blocks.of_type("paragraph")
-            assert paragraphs, "Paragraph text should be captured"
-            assert blocks.has_block("paragraph", text="bold text")
-            assert blocks.has_block("paragraph", text="italic text")
-        finally:
-            fixtures.cleanup()
-
-    def test_collect_parameter(self, output_dir: Path):
-        from pymupdf4llm_c import to_json
-        from tests.pdf_fixtures import get_fixtures
-
-        fixtures = get_fixtures()
-        pdf_path = fixtures.create_pdf_with_headings()
-
-        try:
-            collected = to_json(pdf_path, output_dir=output_dir, collect=True)
-            assert isinstance(collected, list)
-            assert collected, "Collected result should contain block data"
-            assert any(
-                block.get("type") == "heading" for page in collected for block in page
-            )
-        finally:
-            fixtures.cleanup()
+        # Flatten pages to check content
+        assert any(b.get("type") == "heading" for b in blocks)
