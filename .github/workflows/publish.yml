@@ -1,4 +1,4 @@
-name: Build and Publish with uv
+name: Build and Publish Cross-Platform Wheels
 
 on:
   push:
@@ -8,19 +8,48 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: [3.11]  # Add other Python versions if needed
 
     steps:
       - uses: actions/checkout@v4
 
-      # Install uv (Python build tool)
+      # Set up Python
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Install system dependencies for MuPDF and CMake
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libmupdf-dev mupdf mupdf-tools \
+            libharfbuzz-dev libfreetype6-dev libjpeg-dev libopenjp2-7-dev libpng-dev \
+            libbz2-dev libz-dev libcurl4-openssl-dev libcrypto++-dev
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake mupdf harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+
+      - name: Install build dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install cmake mupdf harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl --yes
+
+      # Install uv
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      # Cache uv environments to avoid reinstalling dependencies
-      - name: Cache uv environments
+      # Cache uv environments
+      - name: Cache uv
         uses: actions/cache@v4
         with:
           path: ~/.cache/uv
@@ -28,22 +57,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
 
-      # Install all system-level dependencies for MuPDF and CMake
-      - name: Install build dependencies
+      # Install cibuildwheel for cross-platform wheel building
+      - name: Install cibuildwheel
+        run: pip install cibuildwheel
+
+      # Build wheels using uv + cibuildwheel
+      - name: Build wheels
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake build-essential \
-            libmupdf-dev mupdf mupdf-tools \
-            libharfbuzz-dev libfreetype6-dev \
-            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev \
-            libz-dev libcurl4-openssl-dev libcrypto++-dev
+          # Use uv to build the library in place
+          uv build
+          # cibuildwheel will pick up your built extension and package it correctly for the OS
+          cibuildwheel --output-dir dist
 
-      # Build your wheel and sdist
-      - name: Build wheel and sdist
-        run: uv build
-
-      # Upload built artifacts for the publish job
+      # Upload artifacts for the publish job
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -55,8 +81,8 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
-      id-token: write   # For trusted PyPI publishing
-      contents: write   # For GitHub releases
+      id-token: write
+      contents: write
 
     steps:
       - uses: actions/download-artifact@v4
@@ -64,11 +90,13 @@ jobs:
           name: dist
           path: dist
 
-      # Publish to PyPI using trusted publishing
+      # Publish to PyPI
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages_dir: dist
 
-      # Create GitHub Release with attached wheel and sdist
+      # Create GitHub Release
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,4 +104,3 @@ jobs:
           gh release create "${{ github.ref_name }}" dist/* \
             --repo "${{ github.repository }}" \
             --notes "Release ${{ github.ref_name }}"
-
