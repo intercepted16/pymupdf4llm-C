@@ -57,19 +57,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
 
-      # Install cibuildwheel for cross-platform wheel building
-      - name: Install cibuildwheel
-        run: pip install cibuildwheel
-
-      # Build wheels using uv + cibuildwheel
-      - name: Build wheels
+      # Build wheel using uv and tag per platform
+      - name: Build and tag wheel
         run: |
-          # Use uv to build the library in place
           uv build
-          # cibuildwheel will pick up your built extension and package it correctly for the OS
-          cibuildwheel --output-dir dist
+          mkdir -p dist
 
-      # Upload artifacts for the publish job
+          # Detect OS and rename wheel accordingly
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            plat_tag="manylinux_2_28_x86_64"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            plat_tag="macosx_13_0_x86_64"
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            plat_tag="win_amd64"
+          fi
+
+          # Rename the wheel
+          whl=$(ls dist/*.whl | head -n 1)
+          base=$(basename "$whl" .whl)
+          mv "$whl" "dist/${base}-${plat_tag}.whl"
+
+      # Upload built artifacts for publishing
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
