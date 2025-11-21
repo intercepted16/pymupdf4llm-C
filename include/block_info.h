@@ -1,7 +1,7 @@
 #ifndef BLOCK_INFO_H
 #define BLOCK_INFO_H
 
-#include "mupdf/fitz.h"
+#include <mupdf/fitz.h>
 #include <stddef.h>
 
 /**

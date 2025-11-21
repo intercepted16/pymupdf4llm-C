@@ -15,7 +15,7 @@
 #define strcasecmp _stricmp
 #endif
 
-#include "mupdf/fitz.h"
+#include <mupdf/fitz.h>
 
 #ifndef FZ_STEXT_CLIP
 #define FZ_STEXT_CLIP 1

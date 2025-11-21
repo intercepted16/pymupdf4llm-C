@@ -23,14 +23,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # --- Includes ---
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${PROJECT_ROOT_DIR}/mupdf/include
-  ${PROJECT_ROOT_DIR}/lib/mupdf/include
 )
 
 # --- Dependencies ---
 find_package(Threads REQUIRED)
-find_library(MUPDF_LIB mupdf PATHS ${MUPDF_LIB_DIR} /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib)
-message(STATUS "MUPDF_LIB: ${MUPDF_LIB}")
+find_library(MUPDF_LIB mupdf PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib)
 find_library(FREETYPE_LIB freetype)
 find_library(ZLIB z)
 find_library(HARFBUZZ_LIB harfbuzz)
@@ -78,3 +75,4 @@ if(BUILD_CLI)
 endif()
 
 message(STATUS "Executables → ${CMAKE_INSTALL_PREFIX}/bin, libraries → ${CMAKE_INSTALL_PREFIX}/lib")
+
