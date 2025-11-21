@@ -1,4 +1,5 @@
 #include "block_info.h"
+#include "table.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -39,6 +40,23 @@ void block_array_free(BlockArray* arr)
     for (size_t i = 0; i < arr->count; ++i)
     {
         free(arr->items[i].text);
+        if (arr->items[i].table_data)
+        {
+            // Free single table structure
+            Table* table = (Table*)arr->items[i].table_data;
+            if (table->rows) {
+                for (int j = 0; j < table->count; ++j) {
+                    if (table->rows[j].cells) {
+                        for (int k = 0; k < table->rows[j].count; ++k) {
+                            free(table->rows[j].cells[k].text);
+                        }
+                        free(table->rows[j].cells);
+                    }
+                }
+                free(table->rows);
+            }
+            free(table);
+        }
     }
     free(arr->items);
     arr->items = NULL;

@@ -26,6 +26,7 @@ include = ["pymupdf4llm_c*" ]
 [tool.setuptools.package-data]
 "pymupdf4llm_c" = [
     "lib/*.so",
+    "lib/*.so.*",
     "lib/*.dylib",
     "lib/*.dll",
 ]

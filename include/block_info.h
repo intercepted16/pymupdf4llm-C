@@ -1,7 +1,7 @@
 #ifndef BLOCK_INFO_H
 #define BLOCK_INFO_H
 
-#include <mupdf/fitz.h>
+#include "mupdf/fitz.h"
 #include <stddef.h>
 
 /**
@@ -36,6 +36,7 @@ typedef struct
     int cell_count;           /**< Estimated cell count for tables. */
     float confidence;         /**< Heuristic confidence for tables/headings. */
     int page_number;          /**< Zero-based page index. */
+    void* table_data;         /**< Pointer to TableArray for BLOCK_TABLE type. */
 } BlockInfo;
 
 /**

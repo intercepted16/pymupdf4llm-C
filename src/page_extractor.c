@@ -6,6 +6,7 @@
 #include "buffer.h"
 #include "font_metrics.h"
 #include "text_utils.h"
+#include "table.h"
 
 #include <errno.h>
 #include <math.h>
@@ -426,8 +427,9 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             buffer_append_format(json, ",\"lines\":%d", info->line_count);
         }
 
-        if (info->type == BLOCK_TABLE)
+        if (info->type == BLOCK_TABLE && info->table_data)
         {
+            Table* table = (Table*)info->table_data;
             buffer_append_format(json, ",\"row_count\":%d", info->row_count);
             buffer_append_format(json, ",\"col_count\":%d", info->column_count);
             buffer_append_format(json, ",\"cell_count\":%d", info->cell_count);
@@ -435,6 +437,53 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             {
                 buffer_append_format(json, ",\"confidence\":%.2f", info->confidence);
             }
+            
+            // Serialize rows
+            buffer_append(json, ",\"rows\":[");
+            for (int r = 0; r < table->count; r++)
+            {
+                if (r > 0)
+                    buffer_append(json, ",");
+                TableRow* row = &table->rows[r];
+                buffer_append(json, "{");
+                buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", 
+                                   row->bbox.x0, row->bbox.y0, row->bbox.x1, row->bbox.y1);
+                buffer_append(json, ",\"cells\":[");
+                
+                for (int c = 0; c < row->count; c++)
+                {
+                    if (c > 0)
+                        buffer_append(json, ",");
+                    TableCell* cell = &row->cells[c];
+                    buffer_append(json, "{");
+                    buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]",
+                                       cell->bbox.x0, cell->bbox.y0, cell->bbox.x1, cell->bbox.y1);
+                    
+                    // Escape and output cell text
+                    buffer_append(json, ",\"text\":\"");
+                    if (cell->text) {
+                        for (const char* p = cell->text; *p; p++) {
+                            unsigned char ch = (unsigned char)*p;
+                            switch (ch) {
+                            case '\\': buffer_append(json, "\\\\"); break;
+                            case '"': buffer_append(json, "\\\""); break;
+                            case '\n': buffer_append(json, "\\n"); break;
+                            case '\r': buffer_append(json, "\\r"); break;
+                            case '\t': buffer_append(json, "\\t"); break;
+                            default:
+                                if (ch < 0x20)
+                                    buffer_append_format(json, "\\u%04x", ch);
+                                else
+                                    buffer_append_char(json, (char)ch);
+                                break;
+                            }
+                        }
+                    }
+                    buffer_append(json, "\"}");
+                }
+                buffer_append(json, "]}");
+            }
+            buffer_append(json, "]");
         }
 
         buffer_append(json, "}");
@@ -486,6 +535,104 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             {
                 add_figure_block(&blocks, block->bbox, page_number);
             }
+        }
+
+        TableArray* tables = find_tables_on_page(ctx, doc, page_number, &blocks);
+        if (tables && tables->count > 0) {
+            // Extract text from each table and add as new blocks
+            for (int t = 0; t < tables->count; t++) {
+                Table* table = &tables->tables[t];
+                
+                // Extract text from each cell and store it
+                for (int r = 0; r < table->count; r++) {
+                    TableRow* row = &table->rows[r];
+                    
+                    for (int c = 0; c < row->count; c++) {
+                        TableCell* cell = &row->cells[c];
+                        fz_rect cell_rect = cell->bbox;
+                        
+                        // Extract text from this cell using fz_copy_rectangle
+                        char* cell_text = fz_copy_rectangle(ctx, textpage, cell_rect, 0);
+                        
+                        if (cell_text) {
+                            // Normalize cell text: remove newlines and excess whitespace
+                            char* normalized = normalize_text(cell_text);
+                            fz_free(ctx, cell_text);
+                            
+                            if (normalized) {
+                                // Replace newlines with spaces in cells
+                                for (char* p = normalized; *p; p++) {
+                                    if (*p == '\n' || *p == '\r') {
+                                        *p = ' ';
+                                    }
+                                }
+                                cell->text = normalized;  // Store in cell structure
+                            }
+                        }
+                        
+                        if (!cell->text) {
+                            cell->text = strdup("");  // Ensure non-NULL
+                        }
+                    }
+                }
+                
+                // Now find overlapping text blocks and remove them
+                for (size_t b = 0; b < blocks.count; b++) {
+                    BlockInfo* block = &blocks.items[b];
+                    
+                    // Check if this block overlaps significantly with the table
+                    float overlap_x = fminf(block->bbox.x1, table->bbox.x1) - fmaxf(block->bbox.x0, table->bbox.x0);
+                    float overlap_y = fminf(block->bbox.y1, table->bbox.y1) - fmaxf(block->bbox.y0, table->bbox.y0);
+                    
+                    if (overlap_x > 0 && overlap_y > 0) {
+                        // Calculate overlap ratio
+                        float block_area = (block->bbox.x1 - block->bbox.x0) * (block->bbox.y1 - block->bbox.y0);
+                        float overlap_area = overlap_x * overlap_y;
+                        
+                        // If block overlaps >70% with table, mark it for removal
+                        if (block_area > 0 && overlap_area / block_area > 0.7) {
+                            // Mark this text block's text as empty (will be replaced by table)
+                            free(block->text);
+                            block->text = strdup("");
+                            block->text_chars = 0;
+                        }
+                    }
+                }
+                
+                // Add a new table block with the structured data
+                BlockInfo* table_block = block_array_push(&blocks);
+                if (table_block) {
+                    table_block->text = strdup("");  // No text, structure is in table_data
+                    table_block->text_chars = 0;
+                    table_block->bbox = table->bbox;
+                    table_block->type = BLOCK_TABLE;
+                    table_block->avg_font_size = 0.0f;
+                    table_block->bold_ratio = 0.0f;
+                    table_block->line_count = table->count;
+                    table_block->line_spacing_avg = 0.0f;
+                    table_block->column_count = (table->count > 0) ? table->rows[0].count : 0;
+                    table_block->row_count = table->count;
+                    table_block->cell_count = table_block->row_count * table_block->column_count;
+                    table_block->confidence = 1.0f;
+                    table_block->page_number = page_number;
+                    table_block->column_consistency = 1.0f;
+                    
+                    // Deep copy the table structure so we can safely free the tables array
+                    table_block->table_data = malloc(sizeof(Table));
+                    if (table_block->table_data) {
+                        Table* new_table = (Table*)table_block->table_data;
+                        new_table->bbox = table->bbox;
+                        new_table->count = table->count;
+                        new_table->rows = table->rows;
+                        
+                        // Transfer ownership - null out in original to prevent double-free
+                        table->rows = NULL;
+                        table->count = 0;
+                    }
+                }
+            }
+            // Free the table array structure (but not the table rows we transferred)
+            free_table_array(tables);
         }
     }
     fz_always(ctx)
