@@ -55,4 +55,8 @@
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
+#ifdef __APPLE__
+#include <strings.h> // for strncasecmp, strcasecmp on macOS
+#endif
+
 #endif // PLATFORM_COMPAT_H
