@@ -118,21 +118,9 @@ jobs:
       ############################################################
       # Build wheel
       ############################################################
-      - name: Build and tag wheel
-        shell: bash
+      - name: Build wheel
         run: |
-          uv build
-          mkdir -p dist
-
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            plat_tag="manylinux_2_28_x86_64"
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            plat_tag="macosx_13_0_x86_64"
-          fi
-
-          whl=$(ls dist/*.whl | head -n 1)
-          base=$(basename "$whl" .whl)
-          mv "$whl" "dist/${base}-${plat_tag}.whl"
+          uv build --wheel
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -153,13 +141,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
           path: dist
+      
+      - name: List files in dist
+        run: ls -R dist
+
+      - name: Move wheels to dist
+        run: find dist -type f -name "*.whl" -exec mv {} dist/ \;
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages_dir: dist
+          packages-dir: dist
 
       - name: Create GitHub Release
         env:
