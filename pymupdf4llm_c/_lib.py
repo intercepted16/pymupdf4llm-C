@@ -28,23 +28,29 @@ def _iter_search_directories(package_root: Path) -> Iterator[Path]:
     build_root = project_root / "build"
 
     # Primary locations first: packaged library within the module itself.
+    # This is where pip/uv install places it with all dependencies
     yield package_root / "lib"
+    
+    # Known setuptools build directory pattern - this has dependencies too
+    yield build_root / "lib" / _PACKAGE_NAME / "lib"
+    
+    if build_root.exists():
+        for child in build_root.iterdir():
+            if child.is_dir() and child.name.startswith("lib"):
+                yield child / _PACKAGE_NAME / "lib"
 
     # Editable installs often place build artefacts directly under the project root.
     yield project_root / "lib"
 
     # Default CMake output inside the top-level ``build`` directory.
+    # These may not have all dependencies bundled
     yield build_root
     yield build_root / "lib"
-
-    # Known setuptools build directory pattern.
-    yield build_root / "lib" / _PACKAGE_NAME / "lib"
-
+    
     if build_root.exists():
         for child in build_root.iterdir():
             if child.is_dir() and child.name.startswith("lib"):
                 yield child
-                yield child / _PACKAGE_NAME / "lib"
 
 
 def _iter_candidate_paths(package_root: Path) -> Iterator[Path]:

@@ -3,7 +3,7 @@
 #include "page_extractor.h"
 
 #include <errno.h>
-#include <mupdf/fitz.h>
+#include "mupdf/fitz.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

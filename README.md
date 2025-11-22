@@ -1,19 +1,14 @@
 # PyMuPDF4LLM-C
+PyMuPDF4LLM-C provides a **high-throughput C extractor** for MuPDF that emits page-level JSON describing text, layout metadata, figures, and detected tables. It exposes both **Python** and **Rust** bindings for safe and ergonomic access.
 
-PyMuPDF4LLM-C provides a high-throughput C extractor for MuPDF that emits
-page-level JSON describing text, layout metadata, figures, and detected
-tables. It exposes both **Python and Rust bindings** for safe and ergonomic access.
+---
 
 ## Highlights
+* **Native extractor** – `libtomd` walks each PDF page with MuPDF and writes `page_XXX.json` artifacts containing block type, geometry, font metrics, and basic heuristics used by retrieval pipelines.
+* **Safe, idiomatic bindings** – Python (`pymupdf4llm_c`) and Rust (`pymupdf4llm-c`) APIs provide easy, memory-safe access without exposing raw C pointers.
+* **Single source of truth** – All heuristics, normalization, and JSON serialization live in dedicated C modules under `src/`, with public headers exposed via `include/` for downstream extensions.
 
-- **Native extractor** – `libtomd` walks each PDF page with MuPDF and writes
-  `page_XXX.json` artefacts containing block type, geometry, font metrics, and
-  basic heuristics used by retrieval pipelines.
-- **Safe, idiomatic bindings** – Python (`pymupdf4llm_c`) and Rust (`pymupdf4llm-c`) 
-  APIs provide easy, memory-safe access without exposing raw C pointers.
-- **Single source of truth** – All heuristics, normalisation, and JSON
-  serialisation now live in dedicated C modules under `src/`, with public
-  headers exposed via `include/` for downstream extensions.
+---
 
 ## Installation
 
@@ -23,20 +18,21 @@ Install the Python package from PyPI:
 pip install pymupdf4llm-c
 ````
 
-For Rust, you can install with Cargo:
+For Rust, install with Cargo:
+
 ```bash
 cargo add pymupdf4llm-c
-````
-
-## Building the native extractor
-
-```bash
-./build.sh                      # Release build in build/native
-BUILD_DIR=build/debug ./build.sh # Custom build directory
-CMAKE_BUILD_TYPE=Debug ./build.sh
 ```
 
 ---
+
+## Building the Native Extractor
+
+For instructions on building the C extractor, see the dedicated [BUILD.md](BUILD.md) file. This covers building MuPDF from the submodule, compiling the shared library, and setting up `libmupdf.so`.
+
+---
+
+## Usage
 
 <details>
 <summary>Python Usage</summary>
@@ -110,13 +106,18 @@ fn main() -> Result<(), PdfError> {
 }
 ```
 
-* **Error handling:** all functions return `Result<_, PdfError>`
-* **Memory-safe:** FFI confined internally, no unsafe needed at the call site
-* **Output:** file paths or in-memory JSON (`serde_json::Value`)
+* **Error handling** – all functions return `Result<_, PdfError>`
+* **Memory-safe** – FFI confined internally, no `unsafe` needed at the call site
+* **Output** – file paths or in-memory JSON (`serde_json::Value`)
 
 </details>
 
-## JSON output structure
+---
+
+## Output Structure
+
+<details>
+<summary>JSON Output Structure</summary>
 
 Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) containing an array of block objects:
 
@@ -134,27 +135,27 @@ Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) conta
 ]
 ```
 
-**Block types:** `paragraph`, `heading`, `table`, `list`, `figure`
+* **Block types:** `paragraph`, `heading`, `table`, `list`, `figure`
+* **Key fields:** `bbox` (bounding box), `type`, `font_size`, `font_weight`
+* **Tables** include `row_count`, `col_count`, `confidence`
 
-**Key fields:**
+</details>
 
-* `bbox` – Bounding box `[x0, y0, x1, y1]` in PDF points
-* `type` – Block classification for semantic processing
-* `font_size`, `font_weight` – Styling metadata
-* Tables include `row_count`, `col_count`, `confidence`
+---
 
-## Command-line usage (Python)
+## Command-line Usage (Python)
 
 ```bash
 python -m pymupdf4llm_c.main input.pdf [output_dir]
 ```
 
-If `output_dir` is omitted a sibling directory suffixed with `_json` is
-created. The command prints the destination and each JSON file that was written.
+If `output_dir` is omitted, a sibling directory suffixed with `_json` is created. The command prints the destination and each JSON file that was written.
 
-## Development workflow
+---
 
-1. Create and activate a virtual environment and install dev extras:
+## Development Workflow
+
+1. Create and activate a virtual environment, then install dev extras:
 
 ```bash
 python -m venv .venv
@@ -162,7 +163,8 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-2. Build the native extractor (`./build.sh`)
+2. Build the native extractor (see [BUILD.md](BUILD.md))
+
 3. Run linting and tests:
 
 ```bash
@@ -170,14 +172,20 @@ pip install -e .[dev]
 pytest
 ```
 
+---
+
 ## Troubleshooting
 
 * **Library not found** – Build `libtomd` and ensure it is discoverable.
 * **Build failures** – Check MuPDF headers/libraries.
 * **Different JSON output** – Heuristics live in C code under `src/`; rebuild after changes.
 
+---
+
 ## License
 
-See `LICENSE` for details.
+AGPL v3. Needed because MuPDF is AGPL.
 
-```
+If your project is free and OSS you can use it as long as it’s also AGPL licensed. For commercial projects, you need a license from Artifex, the creators of MuPDF.
+
+See [LICENSE](LICENSE.md) for full details.

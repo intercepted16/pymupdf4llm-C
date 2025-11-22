@@ -69,20 +69,53 @@ impl fmt::Display for PdfError {
 
 impl std::error::Error for PdfError {}
 
-// --- Strongly Typed Block Struct ---
+// --- Strongly Typed Block Structs ---
+
+#[derive(Debug, Deserialize)]
+pub struct BBox {
+    pub x0: f64,
+    pub y0: f64,
+    pub x1: f64,
+    pub y1: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TableCell {
+    pub bbox: BBox,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TableRow {
+    pub bbox: BBox,
+    pub cells: Vec<TableCell>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Block {
     // `type` is a keyword in Rust, so we use `r#type` to escape it.
     // Serde automatically maps JSON key "type" to this field.
+    #[serde(rename = "type")]
     pub r#type: String,
     
     pub text: String,
     
-    pub bbox: Vec<f64>,
+    // For backward compatibility, support both array and object bbox formats
+    #[serde(deserialize_with = "deserialize_bbox")]
+    pub bbox: BBox,
     
     #[serde(default)]
     pub font_size: f64,
+    
+    #[serde(default)]
+    pub font_weight: Option<String>,
+    
+    pub page_number: i32,
+    
+    pub length: usize,
+    
+    #[serde(default)]
+    pub lines: Option<u32>,
     
     #[serde(default)]
     pub confidence: Option<f64>,
@@ -92,6 +125,51 @@ pub struct Block {
     
     #[serde(default)]
     pub col_count: Option<u32>,
+    
+    #[serde(default)]
+    pub cell_count: Option<u32>,
+    
+    #[serde(default)]
+    pub rows: Option<Vec<TableRow>>,
+}
+
+// Custom deserializer to handle bbox as either [x0, y0, x1, y1] or {x0, y0, x1, y1}
+fn deserialize_bbox<'de, D>(deserializer: D) -> Result<BBox, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+    
+    let value = Value::deserialize(deserializer)?;
+    
+    match value {
+        Value::Array(arr) if arr.len() == 4 => {
+            Ok(BBox {
+                x0: arr[0].as_f64().ok_or_else(|| Error::custom("bbox[0] not a number"))?,
+                y0: arr[1].as_f64().ok_or_else(|| Error::custom("bbox[1] not a number"))?,
+                x1: arr[2].as_f64().ok_or_else(|| Error::custom("bbox[2] not a number"))?,
+                y1: arr[3].as_f64().ok_or_else(|| Error::custom("bbox[3] not a number"))?,
+            })
+        }
+        Value::Object(obj) => {
+            Ok(BBox {
+                x0: obj.get("x0")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| Error::custom("missing or invalid x0"))?,
+                y0: obj.get("y0")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| Error::custom("missing or invalid y0"))?,
+                x1: obj.get("x1")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| Error::custom("missing or invalid x1"))?,
+                y1: obj.get("y1")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| Error::custom("missing or invalid y1"))?,
+            })
+        }
+        _ => Err(Error::custom("bbox must be array [x0,y0,x1,y1] or object {x0,y0,x1,y1}")),
+    }
 }
 
 // --- Public API ---

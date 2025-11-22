@@ -1,7 +1,7 @@
 #ifndef PAGE_EXTRACTOR_H
 #define PAGE_EXTRACTOR_H
 
-#include <mupdf/fitz.h>
+#include "mupdf/fitz.h"
 
 #include "block_info.h"
 #include "buffer.h"
