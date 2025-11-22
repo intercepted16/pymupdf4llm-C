@@ -67,10 +67,15 @@ target_compile_definitions(tomd PRIVATE NOLIB_MAIN)
 target_link_libraries(tomd PRIVATE ${MUPDF_LIBS})
 
 # --- RPATH for Python _cffi ---
+# Enable RPATH support
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+
 set_target_properties(tomd PROPERTIES
-    BUILD_WITH_INSTALL_RPATH ON
-    INSTALL_RPATH "$ORIGIN/mupdf"
-    BUILD_RPATH "$ORIGIN/mupdf"
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_RPATH "$ORIGIN"
 )
 
 # --- Optional CLI ---
@@ -80,8 +85,8 @@ if(BUILD_CLI)
     target_link_libraries(to_md PRIVATE ${MUPDF_LIBS})
     set_target_properties(to_md PROPERTIES
         BUILD_WITH_INSTALL_RPATH ON
-        INSTALL_RPATH "$ORIGIN/mupdf"
-        BUILD_RPATH "$ORIGIN/mupdf"
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_RPATH "$ORIGIN"
     )
 endif()
 
@@ -94,21 +99,22 @@ if(SKBUILD)
         RUNTIME DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
     )
     
-    # Also install MuPDF library
-    if(EXISTS "${MUPDF_LIBS}")
-        install(FILES "${MUPDF_LIBS}" 
-            DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
-        )
+    # Also install MuPDF library and all its versions
+    get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
+    
+    # Install all libmupdf library files (versioned and symlinks)
+    if(UNIX AND NOT APPLE)
+        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/libmupdf.so*")
+    elseif(APPLE)
+        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/libmupdf.dylib*")
+    elseif(WIN32)
+        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/*.dll")
     endif()
     
-    # On Linux, also copy the .so symlink if it exists
-    if(UNIX AND NOT APPLE)
-        get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
-        if(EXISTS "${MUPDF_DIR_PATH}/libmupdf.so")
-            install(FILES "${MUPDF_DIR_PATH}/libmupdf.so"
-                DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
-            )
-        endif()
+    if(MUPDF_ALL_LIBS)
+        install(FILES ${MUPDF_ALL_LIBS}
+            DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
+        )
     endif()
 else()
     # Traditional install

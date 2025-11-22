@@ -46,10 +46,14 @@ def get_lib(ffi: FFI, path: Path | str) -> Lib:
         if sys.platform.startswith("linux") or sys.platform == "darwin":
             import ctypes
 
-            mupdf_lib = lib_dir / "libmupdf.so.27.0"
-            if mupdf_lib.exists():
-                # Load libmupdf.so.27.0 with RTLD_GLOBAL so it's available to libtomd.so
-                ctypes.CDLL(str(mupdf_lib), mode=ctypes.RTLD_GLOBAL)
+            # Try to find and preload libmupdf with any version number
+            mupdf_libs = sorted(lib_dir.glob("libmupdf.so.*"), reverse=True)
+            if not mupdf_libs:
+                mupdf_libs = list(lib_dir.glob("libmupdf.so"))
+            
+            if mupdf_libs:
+                # Load libmupdf with RTLD_GLOBAL so it's available to libtomd.so
+                ctypes.CDLL(str(mupdf_libs[0]), mode=ctypes.RTLD_GLOBAL)
 
         # Load the dynamic library (adjust path as needed)
         _lib = ffi.dlopen(str(path))
