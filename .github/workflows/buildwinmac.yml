@@ -8,63 +8,56 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # Use Windows-2022 for better support than Windows-latest
         os: [ubuntu-latest, macos-latest, windows-2022]
 
     steps:
       - uses: actions/checkout@v4
 
-      # MuPDF is usually a submodule, ensure it's cloned/updated
+      # Initialize Git submodules
       - name: Initialize Git Submodules
         run: git submodule update --init --recursive
 
       ## 📦 Install Build Dependencies
 
-      # Install dependencies for Linux (Ubuntu)
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libharfbuzz-dev libfreetype6-dev \
-            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev libz-dev libcurl4-openssl-dev \
+            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev zlib1g-dev libcurl4-openssl-dev \
             libcrypto++-dev
 
-      # Install dependencies for macOS
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
           brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
 
-      # Install dependencies for Windows
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-          choco install make git
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install make git -y
 
-      ## 🔨 Build MuPDF Shared Library
+      ## 🔨 Build MuPDF Library Only
 
-      # Build MuPDF shared library (Linux/macOS)
-      - name: Build MuPDF (Unix-like)
+      - name: Build MuPDF (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           cd mupdf
-          make shared=yes
+          make shared=yes build=release libs
           cd ..
 
-      # Build MuPDF shared library (Windows)
       - name: Build MuPDF (Windows)
         if: runner.os == 'Windows'
-        shell: bash  # Ensure bash for 'make'
+        shell: bash
         run: |
           cd mupdf
-          make shared=yes
+          make shared=yes build=release libs
           cd ..
 
       ## ⬆️ Upload Artifacts
 
-      # Collect built libraries
       - name: Upload native libraries
         uses: actions/upload-artifact@v4
         with:
