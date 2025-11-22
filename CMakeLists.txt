@@ -20,16 +20,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 if(DEFINED PROJECT_ROOT_DIR)
     set(PROJECT_ROOT ${PROJECT_ROOT_DIR})
 else()
-    # Fallback: assume c_src is inside project
     get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/.. ABSOLUTE)
 endif()
 
-# --- MuPDF paths ---
-if(DEFINED MUPDF_LIB_DIR)
-    set(MUPDF_DIR ${MUPDF_LIB_DIR})
-else()
-    set(MUPDF_DIR ${PROJECT_ROOT}/lib/mupdf)
-endif()
+# --- MuPDF submodule path ---
+set(MUPDF_DIR ${PROJECT_ROOT}/mupdf)   # <-- directly point to the submodule
 
 include_directories(BEFORE ${MUPDF_DIR}/include)
 
@@ -37,9 +32,13 @@ include_directories(BEFORE ${MUPDF_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # --- MuPDF shared libraries ---
-set(MUPDF_LIBS
-    ${MUPDF_DIR}/libmupdf.so
-)
+if(APPLE)
+    set(MUPDF_LIBS ${MUPDF_DIR}/libmupdf.dylib)
+elseif(UNIX)
+    set(MUPDF_LIBS ${MUPDF_DIR}/libmupdf.so)
+elseif(WIN32)
+    set(MUPDF_LIBS ${MUPDF_DIR}/mupdf.dll)
+endif()
 
 # --- Source files ---
 file(GLOB APP_SOURCES "src/*.c")

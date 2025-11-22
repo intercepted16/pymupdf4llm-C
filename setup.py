@@ -9,7 +9,6 @@ from pathlib import Path
 from setuptools import setup
 from setuptools.command.build_py import build_py as build_py_base
 
-
 ROOT = Path(__file__).parent.resolve()
 PACKAGENAME = "pymupdf4llm_c"
 TARGET_NAME = "tomd"
@@ -37,6 +36,7 @@ class build_py(build_py_base):
             "cmake",
             str(source_dir),
             f"-DCMAKE_BUILD_TYPE={cmake_build_type}",
+            f"-DMUPDF_LIB_DIR={ROOT / 'lib' / 'mupdf'}",
         ]
         build_cmd = ["cmake", "--build", ".", "--target", TARGET_NAME]
 
@@ -51,7 +51,7 @@ class build_py(build_py_base):
         target_dir = Path(self.build_lib) / PACKAGENAME / "lib"
         target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(produced, target_dir / produced.name)
-        
+
         # Also copy the MuPDF shared library dependency
         mupdf_lib_dir = ROOT / "lib" / "mupdf"
         if mupdf_lib_dir.exists():

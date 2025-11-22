@@ -23,6 +23,10 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+    
+      - name: Initialize Git submodules
+        run: git submodule update --init --recursive
+
 
       ############################################################
       # Restore cached MuPDF libs
@@ -62,14 +66,15 @@ jobs:
             "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so"
           curl -L -o lib/mupdf/libmupdf.so.27.0 \
             "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0"
-          chmod +x lib/mupdf/*
+          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
 
       - name: Download MuPDF libs (macOS)
         if: runner.os == 'macOS' && steps.has_lib.outputs.found == 'false'
         run: |
           curl -L -o lib/mupdf/libmupdf.dylib \
             "https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib"
-          chmod +x lib/mupdf/*
+          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
+ 
 
       ############################################################
       # Save the shared libs to cache (but only if freshly downloaded)
