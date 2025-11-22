@@ -11,44 +11,97 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: [3.11]  # Add other Python versions if needed
+        os:
+          - ubuntu-latest
+          - macos-latest
+          # - windows-latest   # Skipped for now
+        python-version: [3.11]
 
     steps:
       - uses: actions/checkout@v4
 
-      # Set up Python
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Install system dependencies for MuPDF and CMake
-      - name: Install build dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential libmupdf-dev mupdf mupdf-tools \
-            libharfbuzz-dev libfreetype6-dev libjpeg-dev libopenjp2-7-dev libpng-dev \
-            libbz2-dev libz-dev libcurl4-openssl-dev libcrypto++-dev
+      ############################################################
+      # Restore cached MuPDF libs
+      ############################################################
+      - name: Restore MuPDF lib cache
+        id: mupdf_cache
+        uses: actions/cache@v4
+        with:
+          path: lib/mupdf
+          key: mupdf-${{ runner.os }}-v1
+          restore-keys: |
+            mupdf-${{ runner.os }}-
 
-      - name: Install build dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install cmake mupdf harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+      - name: Ensure lib/mupdf directory
+        run: mkdir -p lib/mupdf
 
-      - name: Install build dependencies (Windows)
-        if: runner.os == 'Windows'
+      ############################################################
+      # Detect if shared libs are present
+      ############################################################
+      - name: Check for existing MuPDF shared libs
+        id: has_lib
+        shell: bash
         run: |
-          choco install cmake mupdf harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl --yes
+          if compgen -G "lib/mupdf/libmupdf.*" > /dev/null; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
 
+      ############################################################
+      # Download missing shared libraries
+      ############################################################
+      - name: Download MuPDF libs (Linux)
+        if: runner.os == 'Linux' && steps.has_lib.outputs.found == 'false'
+        run: |
+          curl -L -o lib/mupdf/libmupdf.so \
+            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so"
+          curl -L -o lib/mupdf/libmupdf.so.27.0 \
+            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0"
+          chmod +x lib/mupdf/*
+
+      - name: Download MuPDF libs (macOS)
+        if: runner.os == 'macOS' && steps.has_lib.outputs.found == 'false'
+        run: |
+          curl -L -o lib/mupdf/libmupdf.dylib \
+            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib"
+          chmod +x lib/mupdf/*
+
+      ############################################################
+      # Save the shared libs to cache (but only if freshly downloaded)
+      ############################################################
+      - name: Save MuPDF cache
+        if: steps.has_lib.outputs.found == 'false'
+        uses: actions/cache/save@v4
+        with:
+          path: lib/mupdf
+          key: mupdf-${{ runner.os }}-v1
+
+      ############################################################
+      # Install CMake
+      ############################################################
+      - name: Install CMake (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y cmake
+          else
+            brew install cmake
+          fi
+
+      ############################################################
       # Install uv
+      ############################################################
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      # Cache uv environments
       - name: Cache uv
         uses: actions/cache@v4
         with:
@@ -57,32 +110,31 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
 
-      # Build wheel using uv and tag per platform
+      ############################################################
+      # Build wheel
+      ############################################################
       - name: Build and tag wheel
+        shell: bash
         run: |
           uv build
           mkdir -p dist
 
-          # Detect OS and rename wheel accordingly
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             plat_tag="manylinux_2_28_x86_64"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             plat_tag="macosx_13_0_x86_64"
-          elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            plat_tag="win_amd64"
           fi
 
-          # Rename the wheel
           whl=$(ls dist/*.whl | head -n 1)
           base=$(basename "$whl" .whl)
           mv "$whl" "dist/${base}-${plat_tag}.whl"
 
-      # Upload built artifacts for publishing
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/*
+
 
   publish:
     needs: build
@@ -98,13 +150,11 @@ jobs:
           name: dist
           path: dist
 
-      # Publish to PyPI
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages_dir: dist
 
-      # Create GitHub Release
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

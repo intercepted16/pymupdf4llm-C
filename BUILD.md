@@ -1,6 +1,6 @@
 # Building PyMuPDF4LLM-C
 
-This project depends on **MuPDF**. The key requirement is the **MuPDF shared library (`libmupdf.so`)**. Once that’s in place, Python and Rust bindings are handled automatically.
+This project depends on **MuPDF**. The key requirement is the **MuPDF shared library**. Once that’s in place, Python and Rust bindings are handled automatically.
 
 ---
 
@@ -20,7 +20,7 @@ Then navigate to the `mupdf` submodule and build the shared library:
 
 ```bash
 cd mupdf
-make shared=yes
+make shared=yes release=yes lib
 ```
 
 After building, copy the generated libraries into your project’s `lib/mupdf` directory:
@@ -28,6 +28,15 @@ After building, copy the generated libraries into your project’s `lib/mupdf` d
 ```
 libmupdf.so
 libmupdf.so.27.0
+```
+or
+```
+libmupdf.dylib
+```
+
+or
+```
+libmupdf.dll
 ```
 
 ---
@@ -38,6 +47,8 @@ You can also download the precompiled MuPDF 1.27.0 shared libraries:
 
 * [libmupdf.so](https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so)
 * [libmupdf.so.27.0](https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0)
+* [libmupdf.dylib](https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib)
+* libmupdf.dll (not currently provided)
 
 > **Note:** Precompiled libraries are provided for convenience, as MuPDF 1.27.0 shared libraries are not readily available elsewhere.
 
