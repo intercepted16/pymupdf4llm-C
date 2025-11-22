@@ -1,0 +1,47 @@
+name: Build MuPDF Native Libraries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install dependencies
+      - name: Install build dependencies
+        run: |
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y cmake build-essential libharfbuzz-dev libfreetype6-dev \
+              libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev libz-dev libcurl4-openssl-dev \
+              libcrypto++-dev
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
+            brew update
+            brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
+            choco install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl --yes
+          fi
+
+      # Build MuPDF shared library
+      - name: Build MuPDF
+        run: |
+          git submodule update --init --recursive
+          cd mupdf
+          make shared=yes
+          cd ..
+
+      # Collect built libraries
+      - name: Upload native libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: mupdf-native
+          path: |
+            mupdf/*.dll
+            mupdf/*.dylib
+            mupdf/*.so
