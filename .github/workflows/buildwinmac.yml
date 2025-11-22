@@ -8,40 +8,68 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Use Windows-2022 for better support than Windows-latest
+        os: [ubuntu-latest, macos-latest, windows-2022]
 
     steps:
       - uses: actions/checkout@v4
 
-      # Install dependencies
-      - name: Install build dependencies
-        run: |
-          if [[ "${RUNNER_OS}" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y cmake build-essential libharfbuzz-dev libfreetype6-dev \
-              libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev libz-dev libcurl4-openssl-dev \
-              libcrypto++-dev
-          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
-            brew update
-            brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
-          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
-            choco install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl --yes
-          fi
+      # MuPDF is usually a submodule, ensure it's cloned/updated
+      - name: Initialize Git Submodules
+        run: git submodule update --init --recursive
 
-      # Build MuPDF shared library
-      - name: Build MuPDF
+      ## 📦 Install Build Dependencies
+
+      # Install dependencies for Linux (Ubuntu)
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
-          git submodule update --init --recursive
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libharfbuzz-dev libfreetype6-dev \
+            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev libz-dev libcurl4-openssl-dev \
+            libcrypto++-dev
+
+      # Install dependencies for macOS
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+
+      # Install dependencies for Windows
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          choco install make git
+
+      ## 🔨 Build MuPDF Shared Library
+
+      # Build MuPDF shared library (Linux/macOS)
+      - name: Build MuPDF (Unix-like)
+        if: runner.os != 'Windows'
+        run: |
           cd mupdf
           make shared=yes
           cd ..
+
+      # Build MuPDF shared library (Windows)
+      - name: Build MuPDF (Windows)
+        if: runner.os == 'Windows'
+        shell: bash  # Ensure bash for 'make'
+        run: |
+          cd mupdf
+          make shared=yes
+          cd ..
+
+      ## ⬆️ Upload Artifacts
 
       # Collect built libraries
       - name: Upload native libraries
         uses: actions/upload-artifact@v4
         with:
-          name: mupdf-native
+          name: mupdf-native-${{ runner.os }}
           path: |
-            mupdf/*.dll
-            mupdf/*.dylib
-            mupdf/*.so
+            mupdf/*.dll*
+            mupdf/*.dylib*
+            mupdf/*.so*
