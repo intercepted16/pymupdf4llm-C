@@ -52,6 +52,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          # Install Strawberry Perl modules required by pkg-config
+          cpanm Pod::Usage || true
+          
+          # Force SSE4.1 for the compiler
+          export CFLAGS="-msse4.1"
+          export CXXFLAGS="-msse4.1"
+          
           cd mupdf
           make shared=yes build=release libs
           cd ..
@@ -63,6 +70,6 @@ jobs:
         with:
           name: mupdf-native-${{ runner.os }}
           path: |
-            mupdf/*.dll*
-            mupdf/*.dylib*
-            mupdf/*.so*
+            mupdf/**/*.so*
+            mupdf/**/*.dylib*
+            mupdf/**/*.dll*
