@@ -1,4 +1,5 @@
 # Include build system files
+include CMakeLists.txt
 include meson.build
 include meson.options
 include pyproject.toml
@@ -17,7 +18,6 @@ include lib/mupdf/libmupdf.so*
 include lib/mupdf/libmupdf.dylib
 include lib/mupdf/*.dll
 
-prune mupdf
 prune build
 prune dist
 prune *.egg-info

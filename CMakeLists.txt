@@ -17,11 +17,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # --- Determine project root ---
-if(DEFINED PROJECT_ROOT_DIR)
-    set(PROJECT_ROOT ${PROJECT_ROOT_DIR})
-else()
-    get_filename_component(PROJECT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/.. ABSOLUTE)
-endif()
+# CMAKE_SOURCE_DIR is the top-level source directory (the sdist root during build)
+set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 
 # --- MuPDF submodule path ---
 set(MUPDF_DIR ${PROJECT_ROOT}/mupdf)   # <-- directly point to the submodule
