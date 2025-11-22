@@ -32,12 +32,33 @@ include_directories(BEFORE ${MUPDF_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # --- MuPDF shared libraries ---
+# Try multiple locations for MuPDF library (prioritize lib/mupdf/)
+set(MUPDF_LIB_SEARCH_PATHS
+    ${CMAKE_SOURCE_DIR}/lib/mupdf
+    ${CMAKE_SOURCE_DIR}/mupdf
+    ${MUPDF_DIR}
+)
+
 if(APPLE)
-    set(MUPDF_LIBS ${MUPDF_DIR}/libmupdf.dylib)
-elseif(UNIX)
-    set(MUPDF_LIBS ${MUPDF_DIR}/libmupdf.so)
+    set(MUPDF_LIB_NAME libmupdf.dylib)
 elseif(WIN32)
-    set(MUPDF_LIBS ${MUPDF_DIR}/mupdf.dll)
+    set(MUPDF_LIB_NAME mupdf.dll)
+else()
+    set(MUPDF_LIB_NAME libmupdf.so)
+endif()
+
+# Find MuPDF library
+set(MUPDF_LIBS "")
+foreach(search_path ${MUPDF_LIB_SEARCH_PATHS})
+    if(EXISTS "${search_path}/${MUPDF_LIB_NAME}")
+        set(MUPDF_LIBS "${search_path}/${MUPDF_LIB_NAME}")
+        message(STATUS "Found MuPDF library: ${MUPDF_LIBS}")
+        break()
+    endif()
+endforeach()
+
+if(NOT MUPDF_LIBS)
+    message(FATAL_ERROR "MuPDF library not found! Searched in: ${MUPDF_LIB_SEARCH_PATHS}")
 endif()
 
 # --- Source files ---
@@ -68,7 +89,35 @@ if(BUILD_CLI)
 endif()
 
 # --- Install ---
-install(TARGETS tomd DESTINATION lib)
+# Install to Python package directory
+if(SKBUILD)
+    # scikit-build-core sets SKBUILD_PLATLIB_DIR for the Python package location
+    install(TARGETS tomd 
+        LIBRARY DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
+        RUNTIME DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
+    )
+    
+    # Also install MuPDF library
+    if(EXISTS "${MUPDF_LIBS}")
+        install(FILES "${MUPDF_LIBS}" 
+            DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
+        )
+    endif()
+    
+    # On Linux, also copy the .so symlink if it exists
+    if(UNIX AND NOT APPLE)
+        get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
+        if(EXISTS "${MUPDF_DIR_PATH}/libmupdf.so")
+            install(FILES "${MUPDF_DIR_PATH}/libmupdf.so"
+                DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
+            )
+        endif()
+    endif()
+else()
+    # Traditional install
+    install(TARGETS tomd DESTINATION lib)
+endif()
+
 if(BUILD_CLI)
     install(TARGETS to_md DESTINATION bin)
 endif()

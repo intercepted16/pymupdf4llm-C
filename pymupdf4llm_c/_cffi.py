@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -42,15 +41,16 @@ def get_lib(ffi: FFI, path: Path | str) -> Lib:
     try:
         # Add the library directory to LD_LIBRARY_PATH so dependencies can be found
         lib_dir = Path(path).parent
-        
+
         # For Linux/macOS, we need to use ctypes to preload the dependency
-        if sys.platform.startswith('linux') or sys.platform == 'darwin':
+        if sys.platform.startswith("linux") or sys.platform == "darwin":
             import ctypes
+
             mupdf_lib = lib_dir / "libmupdf.so.27.0"
             if mupdf_lib.exists():
                 # Load libmupdf.so.27.0 with RTLD_GLOBAL so it's available to libtomd.so
                 ctypes.CDLL(str(mupdf_lib), mode=ctypes.RTLD_GLOBAL)
-        
+
         # Load the dynamic library (adjust path as needed)
         _lib = ffi.dlopen(str(path))
     except OSError as e:

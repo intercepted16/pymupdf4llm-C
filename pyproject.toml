@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=67", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.8.0", "ninja"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "pymupdf4llm-c"
@@ -9,26 +9,79 @@ description = "C-backed PDF to Markdown conversion with Python fallbacks"
 authors = [{ name = "PyMuPDF4LLM Contributors" }]
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "AGPL-3.0" }
+dependencies = [
+    "cffi>=1.15.0",
+]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "ruff",
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+    "build>=1.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/intercepted16/pymupdf4llm-C"
+Repository = "https://github.com/intercepted16/pymupdf4llm-C"
+Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["pymupdf4llm_c*" ]
+[project.scripts]
+pymupdf4llm-c = "pymupdf4llm_c.main:main"
 
-[tool.setuptools.package-data]
-"pymupdf4llm_c" = [
-    "lib/*.so",
-    "lib/*.so.*",
-    "lib/*.dylib",
-    "lib/*.dll",
+# Scikit-build-core configuration
+[tool.scikit-build]
+# Minimum required version
+minimum-version = "0.8"
+
+# Build directory
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake]
+# CMake arguments
+args = ["-DMUPDF_LIB_DIR=mupdf"]
+
+[tool.scikit-build.wheel]
+# Explicitly set wheel build tag for proper platform naming
+expand-macos-universal-tags = true
+
+[tool.scikit-build.install]
+# Install configuration - install all components
+components = []
+
+[tool.scikit-build.metadata]
+# Metadata configuration - use static version from project table
+version.provider = "scikit_build_core.metadata.regex"
+version.input = "pymupdf4llm_c/__init__.py"
+
+[tool.scikit-build.editable]
+mode = "redirect"
+verbose = true
+
+[tool.scikit-build.sdist]
+# Source distribution includes
+include = [
+    "include/**/*.h",
+    "src/**/*.c",
+    "mupdf/include/**/*.h",
+    "mupdf/*.so*",
+    "mupdf/*.dylib",
+    "lib/mupdf/*.so*",
+    "lib/mupdf/*.dylib",
+]
+
+exclude = [
+    "mupdf/thirdparty/**/*",
+    "mupdf/source/**/*",
+    "mupdf/resources/**/*",
+    "mupdf/scripts/**/*",
+    "mupdf/docs/**/*",
+    "build/**/*",
+    "dist/**/*",
+    "*.egg-info/**/*",
+    ".git/**/*",
+    "**/__pycache__/**/*",
+    "**/*.pyc",
 ]
 
 [tool.pytest.ini_options]
@@ -63,3 +116,25 @@ omit = [
 precision = 2
 show_missing = true
 skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
