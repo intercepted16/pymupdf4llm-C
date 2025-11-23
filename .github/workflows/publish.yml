@@ -14,82 +14,80 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          # - windows-latest   # Skipped for now
         python-version: [3.11]
 
     steps:
+      ##########################
+      # Checkout main repo
+      ##########################
       - uses: actions/checkout@v4
+        with:
+          submodules: false
 
+      ##########################
+      # Setup Python
+      ##########################
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-    
-      - name: Initialize Git submodules
-        run: git submodule update --init --recursive
 
+      ##########################
+      # Get MuPDF submodule commit hash
+      ##########################
+      - name: Get MuPDF commit
+        id: mupdf_commit
+        run: echo "commit=$(git ls-tree HEAD mupdf | awk '{print $3}')" >> $GITHUB_OUTPUT
 
-      ############################################################
-      # Restore cached MuPDF libs
-      ############################################################
-      - name: Restore MuPDF lib cache
+      ##########################
+      # Restore MuPDF include cache
+      ##########################
+      - name: Restore MuPDF include cache
         id: mupdf_cache
         uses: actions/cache@v4
         with:
-          path: lib/mupdf
-          key: mupdf-${{ runner.os }}-v1
+          path: mupdf/include
+          key: mupdf-${{ runner.os }}-${{ steps.mupdf_commit.outputs.commit }}
           restore-keys: |
             mupdf-${{ runner.os }}-
 
-      - name: Ensure lib/mupdf directory
-        run: mkdir -p lib/mupdf
-
-      ############################################################
-      # Detect if shared libs are present
-      ############################################################
-      - name: Check for existing MuPDF shared libs
-        id: has_lib
-        shell: bash
+      ##########################
+      # Sparse checkout MuPDF include
+      ##########################
+      - name: Sparse checkout MuPDF include
+        if: steps.mupdf_cache.outputs.cache-hit != 'true'
         run: |
-          if compgen -G "lib/mupdf/libmupdf.*" > /dev/null; then
-            echo "found=true" >> $GITHUB_OUTPUT
-          else
-            echo "found=false" >> $GITHUB_OUTPUT
+          if [ ! -d mupdf/.git ]; then
+            git submodule init mupdf
+            git config -f .git/modules/mupdf/config core.sparseCheckout true
+            echo "include/" > .git/modules/mupdf/info/sparse-checkout
+            git submodule update --depth 1 mupdf
           fi
 
-      ############################################################
-      # Download missing shared libraries
-      ############################################################
-      - name: Download MuPDF libs (Linux)
-        if: runner.os == 'Linux' && steps.has_lib.outputs.found == 'false'
-        run: |
-          curl -L -o lib/mupdf/libmupdf.so \
-            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so"
-          curl -L -o lib/mupdf/libmupdf.so.27.0 \
-            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0"
-          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
-
-      - name: Download MuPDF libs (macOS)
-        if: runner.os == 'macOS' && steps.has_lib.outputs.found == 'false'
-        run: |
-          curl -L -o lib/mupdf/libmupdf.dylib \
-            "https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib"
-          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
- 
-
-      ############################################################
-      # Save the shared libs to cache (but only if freshly downloaded)
-      ############################################################
-      - name: Save MuPDF cache
-        if: steps.has_lib.outputs.found == 'false'
-        uses: actions/cache/save@v4
+      ##########################
+      # Restore uv cache
+      ##########################
+      - name: Restore uv cache
+        id: uv_cache
+        uses: actions/cache@v4
         with:
-          path: lib/mupdf
-          key: mupdf-${{ runner.os }}-v1
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml\n**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
 
-      ############################################################
+      ##########################
+      # Install uv if cache missed
+      ##########################
+      - name: Install uv
+        if: steps.uv_cache.outputs.cache-hit != 'true'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      ##########################
       # Install CMake
-      ############################################################
-      - name: Install CMake (Linux/macOS)
+      ##########################
+      - name: Install CMake
         if: runner.os != 'Windows'
         run: |
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -99,36 +97,65 @@ jobs:
             brew install cmake
           fi
 
-      ############################################################
-      # Install uv
-      ############################################################
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      ##########################
+      # Ensure lib/mupdf directory exists
+      ##########################
+      - name: Ensure lib/mupdf exists
+        run: mkdir -p lib/mupdf
 
-      - name: Cache uv
+      ##########################
+      # Check if MuPDF shared libs exist
+      ##########################
+      - name: Check MuPDF libs
+        id: has_lib
+        shell: bash
+        run: |
+          if compgen -G "lib/mupdf/libmupdf.*" > /dev/null; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      ##########################
+      # Download missing MuPDF libs
+      ##########################
+      - name: Download MuPDF libs (Linux)
+        if: runner.os == 'Linux' && steps.has_lib.outputs.found == 'false'
+        run: |
+          curl -L -o lib/mupdf/libmupdf.so "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so"
+          curl -L -o lib/mupdf/libmupdf.so.27.0 "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0"
+          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
+
+      - name: Download MuPDF libs (macOS)
+        if: runner.os == 'macOS' && steps.has_lib.outputs.found == 'false'
+        run: |
+          curl -L -o lib/mupdf/libmupdf.dylib "https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib"
+          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
+
+      ##########################
+      # Save MuPDF cache if downloaded
+      ##########################
+      - name: Save MuPDF cache
+        if: steps.has_lib.outputs.found == 'false'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-
+          path: lib/mupdf
+          key: mupdf-${{ runner.os }}-v1
 
-      ############################################################
+      ##########################
       # Build wheel
-      ############################################################
+      ##########################
       - name: Build wheel
-        run: |
-          uv build --wheel
+        run: uv build --wheel
 
+      ##########################
+      # Upload wheel artifacts
+      ##########################
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ github.run_id }}-${{ runner.os }}
           path: dist/*
-
-
 
   publish:
     needs: build
@@ -142,11 +169,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-      
-      - name: List files in dist
+
+      - name: List dist contents
         run: ls -R dist
 
-      - name: Move wheels to dist
+      - name: Flatten wheel files
         run: find dist -type f -name "*.whl" -exec mv {} dist/ \;
 
       - name: Publish to PyPI
