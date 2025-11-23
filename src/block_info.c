@@ -44,10 +44,14 @@ void block_array_free(BlockArray* arr)
         {
             // Free single table structure
             Table* table = (Table*)arr->items[i].table_data;
-            if (table->rows) {
-                for (int j = 0; j < table->count; ++j) {
-                    if (table->rows[j].cells) {
-                        for (int k = 0; k < table->rows[j].count; ++k) {
+            if (table->rows)
+            {
+                for (int j = 0; j < table->count; ++j)
+                {
+                    if (table->rows[j].cells)
+                    {
+                        for (int k = 0; k < table->rows[j].count; ++k)
+                        {
                             free(table->rows[j].cells[k].text);
                         }
                         free(table->rows[j].cells);
@@ -56,6 +60,16 @@ void block_array_free(BlockArray* arr)
                 free(table->rows);
             }
             free(table);
+        }
+        if (arr->items[i].list_items)
+        {
+            ListItems* list = arr->items[i].list_items;
+            for (int j = 0; j < list->count; ++j)
+            {
+                free(list->items[j]);
+            }
+            free(list->items);
+            free(list);
         }
     }
     free(arr->items);

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAX_COLUMNS 32
 
@@ -339,6 +340,55 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
         info->text = strdup("");
         info->text_chars = 0;
     }
+    else if (info->type == BLOCK_PARAGRAPH || info->type == BLOCK_HEADING)
+    {
+        // Handle hyphenated line breaks and replace newlines with spaces
+        if (info->text)
+        {
+            size_t len = strlen(info->text);
+            char* cleaned = (char*)malloc(len + 1);
+            if (cleaned)
+            {
+                size_t write = 0;
+                for (size_t i = 0; i < len; i++)
+                {
+                    if (info->text[i] == '-' && i + 1 < len && info->text[i + 1] == '\n')
+                    {
+                        // Hyphen before newline - likely a hyphenated word break
+                        // Skip both the hyphen and the newline to join the word
+                        i++; // Skip the newline too
+                    }
+                    else if (info->text[i] == '-' && i + 1 < len && info->text[i + 1] == ' ')
+                    {
+                        // Check if this is "- " at start of line (bullet) or mid-text hyphen
+                        if (i == 0 || (i > 0 && info->text[i - 1] == '\n'))
+                        {
+                            // Bullet pattern "- " at line start - keep it
+                            cleaned[write++] = info->text[i];
+                        }
+                        else
+                        {
+                            // Mid-text hyphen followed by space - keep it
+                            cleaned[write++] = info->text[i];
+                        }
+                    }
+                    else if (info->text[i] == '\n')
+                    {
+                        // Regular newline - replace with space
+                        cleaned[write++] = ' ';
+                    }
+                    else
+                    {
+                        cleaned[write++] = info->text[i];
+                    }
+                }
+                cleaned[write] = '\0';
+                free(info->text);
+                info->text = cleaned;
+                info->text_chars = count_unicode_chars(info->text);
+            }
+        }
+    }
 }
 
 static void collect_font_stats(fz_stext_page* textpage, FontStats* stats)
@@ -358,6 +408,198 @@ static void collect_font_stats(fz_stext_page* textpage, FontStats* stats)
     }
 }
 
+static char* clean_list_item_text(const char* text)
+{
+    if (!text)
+        return strdup("");
+
+    const char* p = text;
+
+    // Skip leading whitespace
+    while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+        p++;
+
+    // Skip bullet markers: -, •, o, *, ·, etc.
+    if (*p == '-' || *p == '*' || *p == 'o' || (unsigned char)*p == 0xE2 /* UTF-8 bullet */)
+    {
+        p++;
+        // Skip the rest of multi-byte UTF-8 bullets
+        while (*p && ((unsigned char)*p & 0xC0) == 0x80)
+            p++;
+
+        // Skip whitespace after bullet
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+            p++;
+    }
+
+    // Now copy the rest, replacing newlines with spaces
+    size_t len = strlen(p);
+    char* result = (char*)malloc(len + 1);
+    if (!result)
+        return strdup("");
+
+    size_t write = 0;
+    bool last_space = false;
+
+    for (size_t i = 0; p[i]; i++)
+    {
+        unsigned char c = (unsigned char)p[i];
+
+        if (c == '\n' || c == '\r' || c == '\t')
+        {
+            if (!last_space && write > 0)
+            {
+                result[write++] = ' ';
+                last_space = true;
+            }
+        }
+        else if (c == ' ')
+        {
+            if (!last_space && write > 0)
+            {
+                result[write++] = ' ';
+                last_space = true;
+            }
+        }
+        else
+        {
+            result[write++] = (char)c;
+            last_space = false;
+        }
+    }
+
+    // Trim trailing whitespace
+    while (write > 0 && result[write - 1] == ' ')
+        write--;
+
+    result[write] = '\0';
+    return result;
+}
+
+static void consolidate_lists(BlockArray* blocks)
+{
+    if (!blocks || blocks->count == 0)
+        return;
+
+    size_t write_idx = 0;
+    for (size_t read_idx = 0; read_idx < blocks->count; ++read_idx)
+    {
+        BlockInfo* current = &blocks->items[read_idx];
+
+        // If not a list, just copy and continue
+        if (current->type != BLOCK_LIST)
+        {
+            if (write_idx != read_idx)
+            {
+                blocks->items[write_idx] = *current;
+            }
+            write_idx++;
+            continue;
+        }
+
+        // Start of a list - find all consecutive list items
+        size_t list_start = read_idx;
+        size_t list_end = read_idx;
+
+        // Look ahead for consecutive list items (within reasonable vertical distance)
+        for (size_t j = read_idx + 1; j < blocks->count; ++j)
+        {
+            BlockInfo* next = &blocks->items[j];
+            BlockInfo* prev = &blocks->items[j - 1];
+
+            if (next->type != BLOCK_LIST)
+                break;
+
+            // Check if items are close vertically (within 2x font size)
+            float vertical_gap = next->bbox.y0 - prev->bbox.y1;
+            float max_gap = prev->avg_font_size * 2.5f;
+            if (max_gap < 20.0f)
+                max_gap = 20.0f;
+
+            if (vertical_gap > max_gap)
+                break;
+
+            list_end = j;
+        }
+
+        // Create consolidated list block
+        ListItems* list_items = (ListItems*)malloc(sizeof(ListItems));
+        if (!list_items)
+        {
+            // Fallback: just copy the first item
+            if (write_idx != read_idx)
+            {
+                blocks->items[write_idx] = *current;
+            }
+            write_idx++;
+            continue;
+        }
+
+        int item_count = (int)(list_end - list_start + 1);
+        list_items->items = (char**)calloc(item_count, sizeof(char*));
+        list_items->count = 0;
+        list_items->capacity = item_count;
+
+        if (!list_items->items)
+        {
+            free(list_items);
+            if (write_idx != read_idx)
+            {
+                blocks->items[write_idx] = *current;
+            }
+            write_idx++;
+            continue;
+        }
+
+        // Collect all list item texts
+        fz_rect combined_bbox = blocks->items[list_start].bbox;
+        float total_font_size = 0.0f;
+        float total_bold_ratio = 0.0f;
+        int total_lines = 0;
+
+        for (size_t j = list_start; j <= list_end; ++j)
+        {
+            BlockInfo* item = &blocks->items[j];
+
+            // Clean the list item text (remove bullets, newlines, etc.)
+            char* cleaned = clean_list_item_text(item->text);
+            list_items->items[list_items->count++] = cleaned;
+
+            // Free the original text
+            free(item->text);
+            item->text = NULL;
+
+            // Expand combined bbox
+            combined_bbox = fz_union_rect(combined_bbox, item->bbox);
+            total_font_size += item->avg_font_size;
+            total_bold_ratio += item->bold_ratio;
+            total_lines += item->line_count;
+        }
+
+        // Create the consolidated list block
+        BlockInfo consolidated = {0};
+        consolidated.text = strdup(""); // Empty text, content is in list_items
+        consolidated.text_chars = 0;
+        consolidated.bbox = combined_bbox;
+        consolidated.type = BLOCK_LIST;
+        consolidated.avg_font_size = total_font_size / item_count;
+        consolidated.bold_ratio = total_bold_ratio / item_count;
+        consolidated.line_count = total_lines;
+        consolidated.line_spacing_avg = blocks->items[list_start].line_spacing_avg;
+        consolidated.page_number = blocks->items[list_start].page_number;
+        consolidated.list_items = list_items;
+
+        blocks->items[write_idx] = consolidated;
+        write_idx++;
+
+        // Skip past all the list items we just consolidated
+        read_idx = list_end;
+    }
+
+    // Update the actual count
+    blocks->count = write_idx;
+}
+
 static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
 {
     Buffer* json = buffer_create(1024);
@@ -365,11 +607,36 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         return NULL;
 
     buffer_append(json, "[");
+    int first_block = 1;
     for (size_t i = 0; i < blocks->count; ++i)
     {
         BlockInfo* info = &blocks->items[i];
-        if (i > 0)
+
+        // Skip blocks with no visible content (non-table, non-figure, non-list blocks)
+        if (info->type != BLOCK_TABLE && info->type != BLOCK_FIGURE && info->type != BLOCK_LIST)
+        {
+            int has_visible = 0;
+            if (info->text)
+            {
+                for (const char* p = info->text; *p; p++)
+                {
+                    unsigned char ch = (unsigned char)*p;
+                    if (ch >= 33 && ch <= 126)
+                    {
+                        has_visible = 1;
+                        break;
+                    }
+                }
+            }
+            if (!has_visible)
+            {
+                continue;
+            }
+        }
+
+        if (!first_block)
             buffer_append(json, ",");
+        first_block = 0;
 
         Buffer* esc = buffer_create(info->text ? strlen(info->text) + 16 : 16);
         if (!esc)
@@ -422,9 +689,56 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         buffer_append_format(json, ",\"page_number\":%d", info->page_number);
         buffer_append_format(json, ",\"length\":%zu", info->text_chars);
 
-        if (info->type == BLOCK_PARAGRAPH || info->type == BLOCK_LIST)
+        if (info->type == BLOCK_PARAGRAPH)
         {
             buffer_append_format(json, ",\"lines\":%d", info->line_count);
+        }
+
+        if (info->type == BLOCK_LIST && info->list_items)
+        {
+            ListItems* list = info->list_items;
+            buffer_append(json, ",\"items\":[");
+            for (int li = 0; li < list->count; li++)
+            {
+                if (li > 0)
+                    buffer_append(json, ",");
+
+                // Escape list item text
+                buffer_append(json, "\"");
+                if (list->items[li])
+                {
+                    for (const char* p = list->items[li]; *p; p++)
+                    {
+                        unsigned char ch = (unsigned char)*p;
+                        switch (ch)
+                        {
+                        case '\\':
+                            buffer_append(json, "\\\\");
+                            break;
+                        case '"':
+                            buffer_append(json, "\\\"");
+                            break;
+                        case '\n':
+                            buffer_append(json, "\\n");
+                            break;
+                        case '\r':
+                            buffer_append(json, "\\r");
+                            break;
+                        case '\t':
+                            buffer_append(json, "\\t");
+                            break;
+                        default:
+                            if (ch < 0x20)
+                                buffer_append_format(json, "\\u%04x", ch);
+                            else
+                                buffer_append_char(json, (char)ch);
+                            break;
+                        }
+                    }
+                }
+                buffer_append(json, "\"");
+            }
+            buffer_append(json, "]");
         }
 
         if (info->type == BLOCK_TABLE && info->table_data)
@@ -437,7 +751,7 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             {
                 buffer_append_format(json, ",\"confidence\":%.2f", info->confidence);
             }
-            
+
             // Serialize rows
             buffer_append(json, ",\"rows\":[");
             for (int r = 0; r < table->count; r++)
@@ -446,30 +760,72 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_append(json, ",");
                 TableRow* row = &table->rows[r];
                 buffer_append(json, "{");
-                buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", 
-                                   row->bbox.x0, row->bbox.y0, row->bbox.x1, row->bbox.y1);
+                buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", row->bbox.x0, row->bbox.y0, row->bbox.x1,
+                                     row->bbox.y1);
                 buffer_append(json, ",\"cells\":[");
-                
+
+                int first_cell = 1;
                 for (int c = 0; c < row->count; c++)
                 {
-                    if (c > 0)
-                        buffer_append(json, ",");
                     TableCell* cell = &row->cells[c];
+
+                    // Skip cells with empty bboxes
+                    if (fz_is_empty_rect(cell->bbox))
+                    {
+                        continue;
+                    }
+
+                    // Skip cells with no visible content (whitelist ASCII 33-126)
+                    int has_visible = 0;
+                    if (cell->text)
+                    {
+                        for (const char* p = cell->text; *p; p++)
+                        {
+                            unsigned char ch = (unsigned char)*p;
+                            if (ch >= 33 && ch <= 126)
+                            {
+                                has_visible = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if (!has_visible)
+                    {
+                        continue;
+                    }
+
+                    if (!first_cell)
+                        buffer_append(json, ",");
+                    first_cell = 0;
+
                     buffer_append(json, "{");
-                    buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]",
-                                       cell->bbox.x0, cell->bbox.y0, cell->bbox.x1, cell->bbox.y1);
-                    
+                    buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", cell->bbox.x0, cell->bbox.y0,
+                                         cell->bbox.x1, cell->bbox.y1);
+
                     // Escape and output cell text
                     buffer_append(json, ",\"text\":\"");
-                    if (cell->text) {
-                        for (const char* p = cell->text; *p; p++) {
+                    if (cell->text)
+                    {
+                        for (const char* p = cell->text; *p; p++)
+                        {
                             unsigned char ch = (unsigned char)*p;
-                            switch (ch) {
-                            case '\\': buffer_append(json, "\\\\"); break;
-                            case '"': buffer_append(json, "\\\""); break;
-                            case '\n': buffer_append(json, "\\n"); break;
-                            case '\r': buffer_append(json, "\\r"); break;
-                            case '\t': buffer_append(json, "\\t"); break;
+                            switch (ch)
+                            {
+                            case '\\':
+                                buffer_append(json, "\\\\");
+                                break;
+                            case '"':
+                                buffer_append(json, "\\\"");
+                                break;
+                            case '\n':
+                                buffer_append(json, "\\n");
+                                break;
+                            case '\r':
+                                buffer_append(json, "\\r");
+                                break;
+                            case '\t':
+                                buffer_append(json, "\\t");
+                                break;
                             default:
                                 if (ch < 0x20)
                                     buffer_append_format(json, "\\u%04x", ch);
@@ -493,7 +849,6 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
     buffer_append(json, "]");
     return json;
 }
-
 int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, const char* output_dir, char* error_buffer,
                         size_t error_buffer_size)
 {
@@ -538,59 +893,152 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
         }
 
         TableArray* tables = find_tables_on_page(ctx, doc, page_number, &blocks);
-        if (tables && tables->count > 0) {
+        if (tables && tables->count > 0)
+        {
             // Extract text from each table and add as new blocks
-            for (int t = 0; t < tables->count; t++) {
+            for (int t = 0; t < tables->count; t++)
+            {
                 Table* table = &tables->tables[t];
-                
+
                 // Extract text from each cell and store it
-                for (int r = 0; r < table->count; r++) {
+                for (int r = 0; r < table->count; r++)
+                {
                     TableRow* row = &table->rows[r];
-                    
-                    for (int c = 0; c < row->count; c++) {
+
+                    for (int c = 0; c < row->count; c++)
+                    {
                         TableCell* cell = &row->cells[c];
                         fz_rect cell_rect = cell->bbox;
-                        
+
                         // Extract text from this cell using fz_copy_rectangle
                         char* cell_text = fz_copy_rectangle(ctx, textpage, cell_rect, 0);
-                        
-                        if (cell_text) {
+
+                        if (cell_text)
+                        {
                             // Normalize cell text: remove newlines and excess whitespace
                             char* normalized = normalize_text(cell_text);
                             fz_free(ctx, cell_text);
-                            
-                            if (normalized) {
+
+                            if (normalized)
+                            {
                                 // Replace newlines with spaces in cells
-                                for (char* p = normalized; *p; p++) {
-                                    if (*p == '\n' || *p == '\r') {
+                                for (char* p = normalized; *p; p++)
+                                {
+                                    if (*p == '\n' || *p == '\r')
+                                    {
                                         *p = ' ';
                                     }
                                 }
-                                cell->text = normalized;  // Store in cell structure
+                                cell->text = normalized; // Store in cell structure
                             }
                         }
-                        
-                        if (!cell->text) {
-                            cell->text = strdup("");  // Ensure non-NULL
+
+                        if (!cell->text)
+                        {
+                            cell->text = strdup(""); // Ensure non-NULL
                         }
                     }
                 }
-                
+
+                // -------------------------------------------------------------
+                // PATCH: Remove Empty Columns (Whitelist Visible ASCII)
+                // -------------------------------------------------------------
+                if (table->count > 0 && table->rows[0].count > 0)
+                {
+                    int col_count = table->rows[0].count;
+                    int* keep_col = (int*)calloc(col_count, sizeof(int));
+                    int keep_count = 0;
+
+                    // 1. Identify which columns have actual content
+                    for (int c = 0; c < col_count; c++)
+                    {
+                        int has_text = 0;
+                        for (int r = 0; r < table->count; r++)
+                        {
+                            char* txt = table->rows[r].cells[c].text;
+                            if (txt && *txt)
+                            {
+                                // Whitelist strategy: Only keep if we find a visible ASCII character (33-126)
+                                // This automatically ignores spaces (32), tabs (9), and all weird Unicode.
+                                for (char* p = txt; *p; p++)
+                                {
+                                    unsigned char uc = (unsigned char)*p;
+                                    if (uc >= 33 && uc <= 126)
+                                    {
+                                        has_text = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (has_text)
+                                break; // Found content, column is valid
+                        }
+
+                        if (has_text)
+                        {
+                            keep_col[c] = 1;
+                            keep_count++;
+                        }
+                    }
+
+                    // 2. Compress table if we found empty columns
+                    if (keep_count > 0 && keep_count < col_count)
+                    {
+                        for (int r = 0; r < table->count; r++)
+                        {
+                            TableRow* row = &table->rows[r];
+                            int target_idx = 0;
+
+                            for (int source_idx = 0; source_idx < col_count; source_idx++)
+                            {
+                                if (keep_col[source_idx])
+                                {
+                                    if (target_idx != source_idx)
+                                    {
+                                        // Move valid cell to new position
+                                        row->cells[target_idx] = row->cells[source_idx];
+                                    }
+                                    target_idx++;
+                                }
+                                else
+                                {
+                                    // This is a ghost/empty column.
+                                    // Free the text to prevent memory leak.
+                                    if (row->cells[source_idx].text)
+                                    {
+                                        free(row->cells[source_idx].text);
+                                        row->cells[source_idx].text = NULL;
+                                    }
+                                }
+                            }
+                            // Update row count to match new number of columns
+                            row->count = keep_count;
+                        }
+                    }
+                    free(keep_col);
+                }
+                // -------------------------------------------------------------
+                // END PATCH
+                // -------------------------------------------------------------
+
                 // Now find overlapping text blocks and remove them
-                for (size_t b = 0; b < blocks.count; b++) {
+                for (size_t b = 0; b < blocks.count; b++)
+                {
                     BlockInfo* block = &blocks.items[b];
-                    
+
                     // Check if this block overlaps significantly with the table
                     float overlap_x = fminf(block->bbox.x1, table->bbox.x1) - fmaxf(block->bbox.x0, table->bbox.x0);
                     float overlap_y = fminf(block->bbox.y1, table->bbox.y1) - fmaxf(block->bbox.y0, table->bbox.y0);
-                    
-                    if (overlap_x > 0 && overlap_y > 0) {
+
+                    if (overlap_x > 0 && overlap_y > 0)
+                    {
                         // Calculate overlap ratio
                         float block_area = (block->bbox.x1 - block->bbox.x0) * (block->bbox.y1 - block->bbox.y0);
                         float overlap_area = overlap_x * overlap_y;
-                        
+
                         // If block overlaps >70% with table, mark it for removal
-                        if (block_area > 0 && overlap_area / block_area > 0.7) {
+                        if (block_area > 0 && overlap_area / block_area > 0.7)
+                        {
                             // Mark this text block's text as empty (will be replaced by table)
                             free(block->text);
                             block->text = strdup("");
@@ -598,11 +1046,12 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                         }
                     }
                 }
-                
+
                 // Add a new table block with the structured data
                 BlockInfo* table_block = block_array_push(&blocks);
-                if (table_block) {
-                    table_block->text = strdup("");  // No text, structure is in table_data
+                if (table_block)
+                {
+                    table_block->text = strdup(""); // No text, structure is in table_data
                     table_block->text_chars = 0;
                     table_block->bbox = table->bbox;
                     table_block->type = BLOCK_TABLE;
@@ -610,21 +1059,23 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                     table_block->bold_ratio = 0.0f;
                     table_block->line_count = table->count;
                     table_block->line_spacing_avg = 0.0f;
+                    // Update column count based on the potentially compressed first row
                     table_block->column_count = (table->count > 0) ? table->rows[0].count : 0;
                     table_block->row_count = table->count;
                     table_block->cell_count = table_block->row_count * table_block->column_count;
                     table_block->confidence = 1.0f;
                     table_block->page_number = page_number;
                     table_block->column_consistency = 1.0f;
-                    
+
                     // Deep copy the table structure so we can safely free the tables array
                     table_block->table_data = malloc(sizeof(Table));
-                    if (table_block->table_data) {
+                    if (table_block->table_data)
+                    {
                         Table* new_table = (Table*)table_block->table_data;
                         new_table->bbox = table->bbox;
                         new_table->count = table->count;
                         new_table->rows = table->rows;
-                        
+
                         // Transfer ownership - null out in original to prevent double-free
                         table->rows = NULL;
                         table->count = 0;
@@ -661,6 +1112,9 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
     {
         qsort(blocks.items, blocks.count, sizeof(BlockInfo), compare_block_position);
     }
+
+    // Consolidate consecutive list items into structured lists
+    consolidate_lists(&blocks);
 
     Buffer* json = serialize_blocks_to_json(&blocks);
     if (!json)
@@ -709,7 +1163,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
     block_array_free(&blocks);
     return 0;
 }
-
 EXPORT char* page_to_json_string(const char* pdf_path, int page_number)
 {
     if (!pdf_path || page_number < 0)
@@ -786,6 +1239,9 @@ EXPORT char* page_to_json_string(const char* pdf_path, int page_number)
         {
             qsort(blocks.items, blocks.count, sizeof(BlockInfo), compare_block_position);
         }
+
+        // Consolidate consecutive list items into structured lists
+        consolidate_lists(&blocks);
 
         Buffer* json = serialize_blocks_to_json(&blocks);
         if (!json)

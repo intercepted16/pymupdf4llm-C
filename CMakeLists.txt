@@ -1,14 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 project(PyMuPdf4LLMC C)
 
-# --- Compiler ---
+# --- Compiler standard ---
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(RELEASE_FLAGS "-Wall -Wextra -O3 -march=native -mtune=native -ffast-math -funroll-loops -finline-functions -ftree-vectorize -fno-signed-zeros -fno-trapping-math -fassociative-math -freciprocal-math")
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${RELEASE_FLAGS}")
 
+# --- Default build type ---
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Release)
 endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
@@ -16,20 +15,23 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# --- Determine project root ---
-# CMAKE_SOURCE_DIR is the top-level source directory (the sdist root during build)
+# --- Compiler flags ---
+set(RELEASE_FLAGS "-Wall -Wextra -O3 -march=native -mtune=native -ffast-math -funroll-loops -finline-functions -ftree-vectorize -fno-signed-zeros -fno-trapping-math -fassociative-math -freciprocal-math")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${RELEASE_FLAGS}")
+
+# Debug flags (profiling-friendly)
+set(DEBUG_FLAGS "-Wall -Wextra -O0 -g -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${DEBUG_FLAGS}")
+
+# --- Project root ---
 set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 
-# --- MuPDF submodule path ---
-set(MUPDF_DIR ${PROJECT_ROOT}/mupdf)   # <-- directly point to the submodule
-
+# --- MuPDF submodule ---
+set(MUPDF_DIR ${PROJECT_ROOT}/mupdf)
 include_directories(BEFORE ${MUPDF_DIR}/include)
-
-# --- Include directories ---
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# --- MuPDF shared libraries ---
-# Try multiple locations for MuPDF library (prioritize lib/mupdf/)
+# --- MuPDF library search ---
 set(MUPDF_LIB_SEARCH_PATHS
     ${CMAKE_SOURCE_DIR}/lib/mupdf
     ${CMAKE_SOURCE_DIR}/mupdf
@@ -44,7 +46,6 @@ else()
     set(MUPDF_LIB_NAME libmupdf.so)
 endif()
 
-# Find MuPDF library
 set(MUPDF_LIBS "")
 foreach(search_path ${MUPDF_LIB_SEARCH_PATHS})
     if(EXISTS "${search_path}/${MUPDF_LIB_NAME}")
@@ -60,64 +61,68 @@ endif()
 
 # --- Source files ---
 file(GLOB APP_SOURCES "src/*.c")
+set(LIBS m)  # Math library
 
-# --- Shared library ---
+# --- Shared library for Python ---
 add_library(tomd SHARED ${APP_SOURCES})
 target_compile_definitions(tomd PRIVATE NOLIB_MAIN)
-target_link_libraries(tomd PRIVATE ${MUPDF_LIBS})
-
-# --- RPATH for Python _cffi ---
-# Enable RPATH support
-set(CMAKE_SKIP_BUILD_RPATH FALSE)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
-
+target_link_libraries(tomd PRIVATE ${MUPDF_LIBS} ${LIBS})
 set_target_properties(tomd PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "$ORIGIN"
     BUILD_RPATH "$ORIGIN"
 )
 
-# --- Optional CLI ---
+# Copy MuPDF libs next to tomd (Unix)
+if(UNIX AND NOT APPLE)
+    get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
+    file(GLOB MUPDF_SHARED_LIBS "${MUPDF_DIR_PATH}/libmupdf.so*")
+    foreach(lib ${MUPDF_SHARED_LIBS})
+        add_custom_command(TARGET tomd POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${lib}
+                    $<TARGET_FILE_DIR:tomd>
+            COMMENT "Copying ${lib} next to tomd"
+        )
+    endforeach()
+endif()
+
+# --- Optional CLI executable ---
 option(BUILD_CLI "Build standalone to_md executable" ON)
 if(BUILD_CLI)
     add_executable(to_md ${APP_SOURCES})
-    target_link_libraries(to_md PRIVATE ${MUPDF_LIBS})
+    target_link_libraries(to_md PRIVATE ${MUPDF_LIBS} ${LIBS})
     set_target_properties(to_md PROPERTIES
-        BUILD_WITH_INSTALL_RPATH ON
+        BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN"
         BUILD_RPATH "$ORIGIN"
     )
+
+    if(UNIX AND NOT APPLE)
+        foreach(lib ${MUPDF_SHARED_LIBS})
+            add_custom_command(TARGET to_md POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        ${lib}
+                        $<TARGET_FILE_DIR:to_md>
+                COMMENT "Copying ${lib} next to to_md"
+            )
+        endforeach()
+    endif()
 endif()
 
 # --- Install ---
-# Install to Python package directory
 if(SKBUILD)
-    # scikit-build-core sets SKBUILD_PLATLIB_DIR for the Python package location
     install(TARGETS tomd 
         LIBRARY DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
         RUNTIME DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
     )
-    
-    # Also install MuPDF library and all its versions
-    get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
-    
-    # Install all libmupdf library files (versioned and symlinks)
-    if(UNIX AND NOT APPLE)
-        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/libmupdf.so*")
-    elseif(APPLE)
-        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/libmupdf.dylib*")
-    elseif(WIN32)
-        file(GLOB MUPDF_ALL_LIBS "${MUPDF_DIR_PATH}/*.dll")
-    endif()
-    
-    if(MUPDF_ALL_LIBS)
-        install(FILES ${MUPDF_ALL_LIBS}
+
+    if(MUPDF_SHARED_LIBS)
+        install(FILES ${MUPDF_SHARED_LIBS}
             DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
         )
     endif()
 else()
-    # Traditional install
     install(TARGETS tomd DESTINATION lib)
 endif()
 

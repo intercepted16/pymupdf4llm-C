@@ -20,7 +20,19 @@ typedef enum
 /**
  * @brief Descriptor for a single extracted block.
  */
+typedef struct BlockInfo BlockInfo;
+
+/**
+ * @brief Array of list items for nested list structures.
+ */
 typedef struct
+{
+    char** items; /**< Array of list item texts. */
+    int count;    /**< Number of items. */
+    int capacity; /**< Allocated capacity. */
+} ListItems;
+
+struct BlockInfo
 {
     char* text;               /**< UTF-8 normalized text (may be empty). */
     size_t text_chars;        /**< Unicode scalar count for @ref text. */
@@ -37,7 +49,8 @@ typedef struct
     float confidence;         /**< Heuristic confidence for tables/headings. */
     int page_number;          /**< Zero-based page index. */
     void* table_data;         /**< Pointer to TableArray for BLOCK_TABLE type. */
-} BlockInfo;
+    ListItems* list_items;    /**< Pointer to ListItems for BLOCK_LIST type. */
+};
 
 /**
  * @brief Dynamic array container for @ref BlockInfo entries.
