@@ -32,13 +32,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       ##########################
-      # Get MuPDF submodule commit hash
-      ##########################
-      - name: Get MuPDF commit
-        id: mupdf_commit
-        run: echo "commit=$(git ls-tree HEAD mupdf | awk '{print $3}')" >> $GITHUB_OUTPUT
-
-      ##########################
       # Restore MuPDF include cache
       ##########################
       - name: Restore MuPDF include cache
@@ -46,22 +39,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mupdf/include
-          key: mupdf-${{ runner.os }}-${{ steps.mupdf_commit.outputs.commit }}
+          key: mupdf-${{ runner.os }}-main  # could also fetch latest commit if you want auto-updates
           restore-keys: |
             mupdf-${{ runner.os }}-
 
       ##########################
-      # Sparse checkout MuPDF include
+      # Sparse clone MuPDF include if cache missed
       ##########################
-      - name: Sparse checkout MuPDF include
+      - name: Sparse clone MuPDF include
         if: steps.mupdf_cache.outputs.cache-hit != 'true'
         run: |
-          if [ ! -d mupdf/.git ]; then
-            git submodule init mupdf
-            git config -f .git/modules/mupdf/config core.sparseCheckout true
-            echo "include/" > .git/modules/mupdf/info/sparse-checkout
-            git submodule update --depth 1 mupdf
-          fi
+          mkdir -p mupdf
+          git clone --filter=blob:none --sparse --depth 1 https://github.com/ArtifexSoftware/mupdf.git mupdf
+          cd mupdf
+          git sparse-checkout set include
+          cd ..
 
       ##########################
       # Restore uv cache
@@ -71,7 +63,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml\n**/uv.lock') }}
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('**/uv.lock') }}
+
           restore-keys: |
             ${{ runner.os }}-uv-
 
@@ -98,13 +91,13 @@ jobs:
           fi
 
       ##########################
-      # Ensure lib/mupdf directory exists
+      # Ensure lib/mupdf exists
       ##########################
-      - name: Ensure lib/mupdf exists
+      - name: Ensure lib/mupdf directory
         run: mkdir -p lib/mupdf
 
       ##########################
-      # Check if MuPDF shared libs exist
+      # Check for existing MuPDF shared libs
       ##########################
       - name: Check MuPDF libs
         id: has_lib
@@ -139,8 +132,8 @@ jobs:
         if: steps.has_lib.outputs.found == 'false'
         uses: actions/cache@v4
         with:
-          path: lib/mupdf
-          key: mupdf-${{ runner.os }}-v1
+          path: mupdf/include
+          key: mupdf-${{ runner.os }}-main
 
       ##########################
       # Build wheel
