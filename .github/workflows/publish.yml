@@ -8,147 +8,102 @@ on:
 
 jobs:
   build:
+    name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-        python-version: [3.11]
+        os: [ubuntu-latest,
+         macos-latest
+        ]
+         # ci build wheel handles versions internally
+        python-version: ["3.11"]
 
     steps:
-      ##########################
-      # Checkout main repo
-      ##########################
       - uses: actions/checkout@v4
         with:
           submodules: false
 
-      ##########################
-      # Setup Python
-      ##########################
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      ##########################
-      # Restore MuPDF include cache
-      ##########################
-      - name: Restore MuPDF include cache
-        id: mupdf_cache
+      # ---------------------------------------------------------
+      # 1. Handle MuPDF Headers (Sparse Checkout)
+      # ---------------------------------------------------------
+      - name: Cache MuPDF Headers
+        id: cache-headers
         uses: actions/cache@v4
         with:
           path: mupdf/include
-          key: mupdf-${{ runner.os }}-main
-          restore-keys: |
-            mupdf-${{ runner.os }}-
+          key: mupdf-headers-v1
 
-      ##########################
-      # Sparse clone MuPDF include if cache missed
-      ##########################
       - name: Sparse clone MuPDF include
-        if: steps.mupdf_cache.outputs.cache-hit != 'true'
+        if: steps.cache-headers.outputs.cache-hit != 'true'
         run: |
-          mkdir -p mupdf
+          # if folder exists, don't clone again
+          if [ -d "mupdf/include" ]; then
+            echo "MuPDF headers already present, skipping clone."
+            exit 0
+          fi
+          # Removed mkdir to prevent git clone failure
           git clone --filter=blob:none --sparse --depth 1 https://github.com/ArtifexSoftware/mupdf.git mupdf
           cd mupdf
           git sparse-checkout set include
           cd ..
 
+# ---------------------------------------------------------
+      # 2. Handle Shared Libraries
+      # ---------------------------------------------------------
+      - name: Ensure lib directory
+        run: mkdir -p lib/mupdf
 
-      ##########################
-      # Install uv
-      ##########################
+      - name: Cache MuPDF Libraries
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: lib/mupdf
+          # Key depends on OS and library URLs (or a version)
+          # Using runner.os is essential as the downloaded files are different
+          key: ${{ runner.os }}-mupdf-libs-v1-${{ hashFiles('lib/mupdf/*') }} 
+
+      # We download these to the HOST. cibuildwheel will copy them 
+      # into the container because they are inside the project root.
+      - name: Download MuPDF libs (Linux)
+        if: runner.os == 'Linux' && steps.cache-libs.outputs.cache-hit != 'true'
+        run: |
+          echo "Cache miss, downloading MuPDF Linux libs."
+          # No need to check if files exist, the cache check handles it
+          curl -L -o lib/mupdf/libmupdf.so "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so"
+          curl -L -o lib/mupdf/libmupdf.so.27.0 "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so.27.0"
+          chmod +x lib/mupdf/*.so*
+
+      - name: Download MuPDF libs (macOS)
+        if: runner.os == 'macOS' && steps.cache-libs.outputs.cache-hit != 'true'
+        run: |
+          echo "Cache miss, downloading MuPDF macOS libs."
+          # No need to check if file exists, the cache check handles it
+          curl -L -o lib/mupdf/libmupdf.dylib "https://hc-cdn.hel1.your-objectstorage.com/s/v3/afdd1f4b0bac94758cf8ded314ac48eff3b1190f_libmupdf.dylib"
+          chmod +x lib/mupdf/*.dylib*
+      # ---------------------------------------------------------
+      # 3. Build Wheels
+      # ---------------------------------------------------------
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      ##########################
-      # Install CMake
-      ##########################
-      - name: Install CMake
-        if: runner.os != 'Windows'
-        run: |
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y cmake
-          else
-            brew install cmake
-          fi
-
-      ##########################
-      # Ensure lib/mupdf exists
-      ##########################
-      - name: Ensure lib/mupdf directory
-        run: mkdir -p lib/mupdf
-
-      ##########################
-      # Check for existing MuPDF shared libs
-      ##########################
-      - name: Check MuPDF libs
-        id: has_lib
-        shell: bash
-        run: |
-          if compgen -G "lib/mupdf/libmupdf.*" > /dev/null; then
-            echo "found=true" >> $GITHUB_OUTPUT
-          else
-            echo "found=false" >> $GITHUB_OUTPUT
-          fi
-
-      ##########################
-      # Download missing MuPDF libs
-      ##########################
-      - name: Download MuPDF libs (Linux)
-        if: runner.os == 'Linux' && steps.has_lib.outputs.found == 'false'
-        run: |
-          curl -L -o lib/mupdf/libmupdf.so "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so"
-          curl -L -o lib/mupdf/libmupdf.so.27.0 "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so.27.0"
-          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
-
-      - name: Download MuPDF libs (macOS)
-        if: runner.os == 'macOS' && steps.has_lib.outputs.found == 'false'
-        run: |
-          curl -L -o lib/mupdf/libmupdf.dylib "https://hc-cdn.hel1.your-objectstorage.com/s/v3/afdd1f4b0bac94758cf8ded314ac48eff3b1190f_libmupdf.dylib"
-          chmod +x lib/mupdf/*.so* lib/mupdf/*.dylib* lib/mupdf/*.dll* || true
-
-      ##########################
-      # Save MuPDF cache if downloaded
-      ##########################
-      - name: Save MuPDF cache
-        if: steps.has_lib.outputs.found == 'false'
-        uses: actions/cache@v4
-        with:
-          path: mupdf/include
-          key: mupdf-${{ runner.os }}-main
-
-      ##########################
-      # Build wheels using cibuildwheel
-      ##########################
       - name: Build wheels
-        env:
-          CIBW_BUILD: "*"
-          CIBW_SKIP: "pp* cp27*"
-          CIBW_ENVIRONMENT: "LD_LIBRARY_PATH=$PWD/lib/mupdf"
-          # macOS: Do NOT use CIBW_ENVIRONMENT. 
-          # Instead, override the repair command to inject the path explicitly.
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS: >
-            DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-listdeps {wheel} &&
-            DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
         run: |
           uv venv .venv
           source .venv/bin/activate
-          uv pip install cibuildwheel==2.15.0 wheel
+          uv pip install cibuildwheel==2.16.2 # Bumped version
           python -m cibuildwheel --output-dir dist
 
-      ##########################
-      # Upload wheel artifacts
-      ##########################
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.run_id }}-${{ matrix.os }}
-          path: dist/*
+          name: dist-${{ matrix.os }}
+          path: dist/*.whl
 
   publish:
     needs: build
@@ -162,12 +117,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-
-      - name: List dist contents
-        run: ls -R dist
-
-      - name: Flatten wheel files
-        run: find dist -type f -name "*.whl" -exec mv {} dist/ \;
+          pattern: dist-*
+          merge-multiple: true 
+          # v4 'merge-multiple' flattens the structure automatically, 
+          # removing the need for the 'find/mv' command you had previously.
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

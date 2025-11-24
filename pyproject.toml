@@ -138,3 +138,29 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+
+[tool.cibuildwheel]
+# Global build settings
+skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"] # explicitly skip unsupported platforms
+build = [
+    "cp3{9,10,11,12,13}-manylinux_x86_64",
+    "cp3{9,10,11,12,13}-macosx_arm64"
+] # linux x64 and macOS arm64 only (3.9->3.13)
+
+# ---------------------------------------------------------
+# Linux Specifics
+# ---------------------------------------------------------
+[tool.cibuildwheel.linux]
+environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf" }
+
+# ---------------------------------------------------------
+# macOS Specifics
+# ---------------------------------------------------------
+[tool.cibuildwheel.macos]
+# We must override the repair command to inject the library path.
+# We use a multi-line string (""") for clarity.
+repair-wheel-command = """
+DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-listdeps {wheel} && \
+DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+"""
