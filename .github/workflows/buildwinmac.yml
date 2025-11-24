@@ -41,14 +41,14 @@ jobs:
               git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
               
               cd mupdf
-              make shared=yes build=release
+              make shared=yes build=release libs
             "
 
       - name: Upload native libraries (Linux)
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-Linux-x86_64
-          path: mupdf/build/release/*.so*
+          path: mupdf/build/shared-release/*.so*
 
   build-macos-intel:
     name: Build MuPDF (macOS, Intel)
@@ -72,13 +72,13 @@ jobs:
       - name: Build MuPDF (macOS, Intel)
         run: |
           cd mupdf
-          make shared=yes build=release
+          make shared=yes build=release libs
 
       - name: Upload native libraries (macOS, Intel)
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-macOS-x86_64
-          path: mupdf/build/release/*.dylib*
+          path: mupdf/build/shared-release/*.dylib*
 
   build-macos-arm:
     name: Build MuPDF (macOS, Apple Silicon)
@@ -102,10 +102,10 @@ jobs:
       - name: Build MuPDF (macOS, Apple Silicon)
         run: |
           cd mupdf
-          make shared=yes build=release
+          make shared=yes build=release libs
 
       - name: Upload native libraries (macOS, Apple Silicon)
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-macOS-arm64
-          path: mupdf/build/release/*.dylib*
+          path: mupdf/build/shared-release/*.dylib*
