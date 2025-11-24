@@ -35,7 +35,7 @@ jobs:
 
               # Now, cd into the newly cloned directory and build
               cd mupdf
-              make shared=yes build=release
+              make shared=yes build=release libs
               
               # The build artifacts will be at /work/mupdf/build/shared-release,
               # which maps to ${{ github.workspace }}/mupdf/build/shared-release
@@ -70,7 +70,7 @@ jobs:
       - name: Build MuPDF (macOS, Intel)
         run: |
           cd mupdf
-          make shared=yes build=release
+          make shared=yes build=release libs
 
       - name: Upload native libraries (macOS, Intel)
         uses: actions/upload-artifact@v4
@@ -99,7 +99,7 @@ jobs:
       - name: Build MuPDF (macOS, Apple Silicon)
         run: |
           cd mupdf
-          make shared=yes build=release
+          make shared=yes build=release libs
 
       - name: Upload native libraries (macOS, Apple Silicon)
         uses: actions/upload-artifact@v4
