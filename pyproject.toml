@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pymupdf4llm-c"
-version = "1.0.5"
+version = "1.0.6"
 description = "C-backed PDF to Markdown conversion with Python fallbacks"
 authors = [{ name = "PyMuPDF4LLM Contributors" }]
 readme = "README.md"
