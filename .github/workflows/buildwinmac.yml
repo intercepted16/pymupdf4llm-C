@@ -10,10 +10,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        # This step is still needed so ${{ github.workspace }} exists
+        # for the volume mount and for the artifact upload.
 
-      - name: Clone MuPDF
-        run: |
-          git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+      # STEP 1: Removed the "Clone MuPDF" step from the host.
+      # We will now do this INSIDE the container.
 
       - name: Build MuPDF inside manylinux2014 container
         run: |
@@ -23,20 +24,31 @@ jobs:
             quay.io/pypa/manylinux2014_x86_64 \
             bash -c "
               set -e
-              yum install -y harfbuzz-devel freetype-devel libjpeg-turbo-devel \
-                             openjpeg2-devel libpng-devel bzip2-devel zlib-devel \
-                             libcurl-devel openssl-devel cmake3
+              # STEP 2: Add 'git' to the list of yum dependencies
+              yum install -y git harfbuzz-devel freetype-devel libjpeg-turbo-devel \
+                               openjpeg2-devel libpng-devel bzip2-devel zlib-devel \
+                               libcurl-devel openssl-devel cmake3
               ln -s /usr/bin/cmake3 /usr/bin/cmake || true
 
+              # STEP 3: Clone MuPDF *inside* the container's /work directory
+              git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+
+              # Now, cd into the newly cloned directory and build
               cd mupdf
               make shared=yes build=release
+              
+              # The build artifacts will be at /work/mupdf/build/shared-release,
+              # which maps to ${{ github.workspace }}/mupdf/build/shared-release
+              # on the host, where upload-artifact will find them.
             "
 
       - name: Upload native libraries (Linux)
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-Linux-x86_64
-          path: mupdf/build/release/*.so*
+          # This path is relative to ${{ github.workspace }} and will
+          # now be populated by the container.
+          path: mupdf/build/shared-release/*.so*
 
   build-macos-intel:
     name: Build MuPDF (macOS, Intel)
@@ -64,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-macOS-x86_64
-          path: mupdf/build/release/*.dylib*
+          path: mupdf/build/shared-release/*.dylib*
 
   build-macos-arm:
     name: Build MuPDF (macOS, Apple Silicon)
@@ -76,7 +88,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Clone MuPDF
-        run: git clone --depth 1 https://github.com/ArtifexSoftware/mupdf.git
+        # FIX (from last time): Added --recurse-submodules
+        run: git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
 
       - name: Install dependencies (macOS)
         run: |
@@ -92,4 +105,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mupdf-native-macOS-arm64
-          path: mupdf/build/release/*.dylib*
+          path: mupdf/build/shared-release/*.dylib*
