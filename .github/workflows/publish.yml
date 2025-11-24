@@ -55,23 +55,11 @@ jobs:
           git sparse-checkout set include
           cd ..
 
-      ##########################
-      # Restore uv cache
-      ##########################
-      - name: Restore uv cache
-        id: uv_cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('**/uv.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-
 
       ##########################
-      # Install uv if cache missed
+      # Install uv
       ##########################
       - name: Install uv
-        if: steps.uv_cache.outputs.cache-hit != 'true'
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
