@@ -1,3 +1,5 @@
+"""setup.py: Build script for pymupdf4llm_c package."""
+
 from __future__ import annotations
 
 import os
@@ -55,7 +57,9 @@ class build_py(build_py_base):
         # Also copy the MuPDF shared library dependency
         mupdf_lib_dir = ROOT / "lib" / "mupdf"
         if mupdf_lib_dir.exists():
-            for lib_file in mupdf_lib_dir.glob("libmupdf.so*"):
+            for lib_file in mupdf_lib_dir.glob(
+                "libmupdf.so.*.*"
+            ):  # match versioned shared libs
                 if lib_file.is_file():
                     shutil.copy2(lib_file, target_dir / lib_file.name)
 

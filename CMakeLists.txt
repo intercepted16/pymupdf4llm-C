@@ -76,7 +76,7 @@ set_target_properties(tomd PROPERTIES
 # Copy MuPDF libs next to tomd (Unix)
 if(UNIX AND NOT APPLE)
     get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
-    file(GLOB MUPDF_SHARED_LIBS "${MUPDF_DIR_PATH}/libmupdf.so*")
+    file(GLOB MUPDF_SHARED_LIBS "${MUPDF_DIR_PATH}/libmupdf.so.*.*") # only get versioned shared libs
     foreach(lib ${MUPDF_SHARED_LIBS})
         add_custom_command(TARGET tomd POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
