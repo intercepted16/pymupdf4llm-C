@@ -13,7 +13,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          # - macos-latest
         python-version: [3.11]
 
     steps:
@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: mupdf/include
-          key: mupdf-${{ runner.os }}-main  # could also fetch latest commit if you want auto-updates
+          key: mupdf-${{ runner.os }}-main
           restore-keys: |
             mupdf-${{ runner.os }}-
 
@@ -64,7 +64,6 @@ jobs:
         with:
           path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('**/uv.lock') }}
-
           restore-keys: |
             ${{ runner.os }}-uv-
 
@@ -136,10 +135,17 @@ jobs:
           key: mupdf-${{ runner.os }}-main
 
       ##########################
-      # Build wheel
+      # Build wheels using cibuildwheel
       ##########################
-      - name: Build wheel
-        run: uv build --wheel
+      - name: Build wheels
+        env:
+          CIBW_BUILD: "*"
+          CIBW_SKIP: "pp* cp27*"
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install cibuildwheel==2.15.0 wheel
+          python -m cibuildwheel --output-dir dist
 
       ##########################
       # Upload wheel artifacts
@@ -147,7 +153,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.run_id }}-${{ runner.os }}
+          name: dist-${{ github.run_id }}-${{ matrix.os }}
           path: dist/*
 
   publish:

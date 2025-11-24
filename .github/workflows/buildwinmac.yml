@@ -4,72 +4,92 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-native:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-2022]
-
+  build-linux:
+    name: Build MuPDF (manylinux2014)
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Initialize Git submodules
-      - name: Initialize Git Submodules
-        run: git submodule update --init --recursive
-
-      ## 📦 Install Build Dependencies
-
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Clone MuPDF
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential libharfbuzz-dev libfreetype6-dev \
-            libjpeg-dev libopenjp2-7-dev libpng-dev libbz2-dev zlib1g-dev libcurl4-openssl-dev \
-            libcrypto++-dev
+          git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+
+      - name: Build MuPDF inside manylinux2014 container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            quay.io/pypa/manylinux2014_x86_64 \
+            bash -c "
+              set -e
+              yum install -y harfbuzz-devel freetype-devel libjpeg-turbo-devel \
+                             openjpeg2-devel libpng-devel bzip2-devel zlib-devel \
+                             libcurl-devel openssl-devel cmake3
+              ln -s /usr/bin/cmake3 /usr/bin/cmake || true
+
+              cd mupdf
+              make shared=yes build=release
+            "
+
+      - name: Upload native libraries (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mupdf-native-Linux-x86_64
+          path: mupdf/build/release/*.so*
+
+  build-macos-intel:
+    name: Build MuPDF (macOS, Intel)
+    runs-on: macos-12
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone MuPDF
+        run: git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
 
       - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
         run: |
           brew update
           brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
 
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          choco install make git -y
-
-      ## 🔨 Build MuPDF Library Only
-
-      - name: Build MuPDF (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build MuPDF (macOS, Intel)
         run: |
           cd mupdf
-          make shared=yes build=release libs
-          cd ..
+          make shared=yes build=release
 
-      - name: Build MuPDF (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          # Install Strawberry Perl modules required by pkg-config
-          cpanm Pod::Usage || true
-          
-          # Force SSE4.1 for the compiler
-          export CFLAGS="-msse4.1"
-          export CXXFLAGS="-msse4.1"
-          
-          cd mupdf
-          make shared=yes build=release libs
-          cd ..
-
-      ## ⬆️ Upload Artifacts
-
-      - name: Upload native libraries
+      - name: Upload native libraries (macOS, Intel)
         uses: actions/upload-artifact@v4
         with:
-          name: mupdf-native-${{ runner.os }}
-          path: |
-            mupdf/**/*.so*
-            mupdf/**/*.dylib*
-            mupdf/**/*.dll*
+          name: mupdf-native-macOS-x86_64
+          path: mupdf/build/release/*.dylib*
+
+  build-macos-arm:
+    name: Build MuPDF (macOS, Apple Silicon)
+    runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone MuPDF
+        run: git clone --depth 1 https://github.com/ArtifexSoftware/mupdf.git
+
+      - name: Install dependencies (macOS)
+        run: |
+          brew update
+          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+
+      - name: Build MuPDF (macOS, Apple Silicon)
+        run: |
+          cd mupdf
+          make shared=yes build=release
+
+      - name: Upload native libraries (macOS, Apple Silicon)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mupdf-native-macOS-arm64
+          path: mupdf/build/release/*.dylib*
