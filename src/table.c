@@ -137,8 +137,33 @@ static void add_to_spatial_hash(SpatialHash* hash, Point p)
     // Expand pool if needed
     if (hash->pool_size >= hash->pool_capacity)
     {
+        PointNode* old_pool = hash->node_pool;
         hash->pool_capacity *= 2;
         hash->node_pool = realloc(hash->node_pool, hash->pool_capacity * sizeof(PointNode));
+
+        // If realloc moved the memory, update all bucket pointers
+        if (hash->node_pool != old_pool)
+        {
+            // Update all bucket head pointers
+            for (int i = 0; i < HASH_SIZE; i++)
+            {
+                if (hash->buckets[i])
+                {
+                    // Calculate offset from old base and apply to new base
+                    ptrdiff_t offset = hash->buckets[i] - old_pool;
+                    hash->buckets[i] = hash->node_pool + offset;
+                }
+            }
+            // Update all next pointers within nodes
+            for (int i = 0; i < hash->pool_size; i++)
+            {
+                if (hash->node_pool[i].next)
+                {
+                    ptrdiff_t offset = hash->node_pool[i].next - old_pool;
+                    hash->node_pool[i].next = hash->node_pool + offset;
+                }
+            }
+        }
     }
 
     PointNode* node = &hash->node_pool[hash->pool_size++];

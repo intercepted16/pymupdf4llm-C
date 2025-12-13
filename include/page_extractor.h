@@ -5,6 +5,7 @@
 
 #include "block_info.h"
 #include "buffer.h"
+#include "platform_compat.h"
 
 #ifdef __cplusplus
 extern "C"

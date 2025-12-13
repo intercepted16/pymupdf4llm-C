@@ -33,7 +33,14 @@ def extract_blocks(tmp_path: Path) -> ExtractorCallable:
         if not pdf_path.exists():
             pytest.skip(f"Test PDF not found: {pdf_path}")
 
-        blocks = to_json(pdf_path, output_dir=tmp_path, collect=True)
+        pages = to_json(pdf_path, output_file=tmp_path / "output.json", collect=True)
+        # Flatten page structure: [{page: N, data: [...]}, ...] -> [block, block, ...]
+        blocks = []
+        for page in pages:
+            if isinstance(page, dict) and "data" in page:
+                blocks.extend(page["data"])
+            else:
+                blocks.append(page)
         return blocks
 
     return _process
@@ -82,14 +89,23 @@ class TestJsonExtraction:
         lists = [b for b in blocks if b.get("type") == "list"]
         assert lists, "Expected list blocks for bullet content"
 
-        has_item = any("first item" in b.get("text", "").lower() for b in lists)
+        # List content is in 'items' field, not 'text'
+        def has_first_item(block):
+            items = block.get("items", [])
+            for item in items:
+                if "first" in item.lower():
+                    return True
+            return False
+
+        has_item = any(has_first_item(b) for b in lists)
         assert has_item, "List content text was not preserved"
 
     def test_paragraph_presence(self, extract_blocks: ExtractorCallable):
         """Test that paragraph text is extracted correctly."""
         blocks = extract_blocks("sample_with_formatting.pdf")
 
-        paragraphs = [b for b in blocks if b.get("type") == "paragraph"]
+        # The extractor uses "text" type for paragraphs
+        paragraphs = [b for b in blocks if b.get("type") in ("paragraph", "text")]
         assert paragraphs, "Paragraph text should be captured"
 
         text_content = " ".join(b.get("text", "").lower() for b in paragraphs)
@@ -102,10 +118,16 @@ class TestJsonExtraction:
         if not pdf_path.exists():
             pytest.skip(f"Test PDF not found: {pdf_path}")
 
-        blocks = to_json(pdf_path, output_dir=tmp_path, collect=True)
+        pages = to_json(pdf_path, output_file=tmp_path / "output.json", collect=True)
 
-        assert isinstance(blocks, list)
-        assert blocks, "Result should contain page data"
+        assert isinstance(pages, list)
+        assert pages, "Result should contain page data"
 
         # Flatten pages to check content
+        blocks = []
+        for page in pages:
+            if isinstance(page, dict) and "data" in page:
+                blocks.extend(page["data"])
+            else:
+                blocks.append(page)
         assert any(b.get("type") == "heading" for b in blocks)

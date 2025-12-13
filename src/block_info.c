@@ -5,12 +5,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Forward declaration of block_info_clear to avoid implicit declaration warning
+void block_info_clear(BlockInfo* info);
+
 const char* block_type_to_string(BlockType t)
 {
     switch (t)
     {
     case BLOCK_PARAGRAPH:
-        return "paragraph";
+        return "text";
     case BLOCK_HEADING:
         return "heading";
     case BLOCK_TABLE:
@@ -20,7 +23,7 @@ const char* block_type_to_string(BlockType t)
     case BLOCK_FIGURE:
         return "figure";
     default:
-        return "other";
+        return "unknown";
     }
 }
 
@@ -39,43 +42,57 @@ void block_array_free(BlockArray* arr)
         return;
     for (size_t i = 0; i < arr->count; ++i)
     {
-        free(arr->items[i].text);
-        if (arr->items[i].table_data)
-        {
-            // Free single table structure
-            Table* table = (Table*)arr->items[i].table_data;
-            if (table->rows)
-            {
-                for (int j = 0; j < table->count; ++j)
-                {
-                    if (table->rows[j].cells)
-                    {
-                        for (int k = 0; k < table->rows[j].count; ++k)
-                        {
-                            free(table->rows[j].cells[k].text);
-                        }
-                        free(table->rows[j].cells);
-                    }
-                }
-                free(table->rows);
-            }
-            free(table);
-        }
-        if (arr->items[i].list_items)
-        {
-            ListItems* list = arr->items[i].list_items;
-            for (int j = 0; j < list->count; ++j)
-            {
-                free(list->items[j]);
-            }
-            free(list->items);
-            free(list);
-        }
+        block_info_clear(&arr->items[i]);
     }
     free(arr->items);
     arr->items = NULL;
     arr->count = 0;
     arr->capacity = 0;
+}
+
+void block_info_clear(BlockInfo* info)
+{
+    if (!info)
+        return;
+
+    free(info->text);
+    info->text = NULL;
+
+    if (info->table_data)
+    {
+        Table* table = (Table*)info->table_data;
+        if (table->rows)
+        {
+            for (int j = 0; j < table->count; ++j)
+            {
+                if (table->rows[j].cells)
+                {
+                    for (int k = 0; k < table->rows[j].count; ++k)
+                    {
+                        free(table->rows[j].cells[k].text);
+                    }
+                    free(table->rows[j].cells);
+                }
+            }
+            free(table->rows);
+        }
+        free(table);
+        info->table_data = NULL;
+    }
+
+    if (info->list_items)
+    {
+        ListItems* list = info->list_items;
+        for (int j = 0; j < list->count; ++j)
+        {
+            free(list->items[j]);
+        }
+        free(list->items);
+        free(list);
+        info->list_items = NULL;
+    }
+
+    info->text_chars = 0;
 }
 
 BlockInfo* block_array_push(BlockArray* arr)

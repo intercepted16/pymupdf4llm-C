@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, Literal, Sequence, TypedDict, cast, overload
+from typing import Any, List, Literal, TypedDict, cast, overload
 
 from ._cffi import get_ffi, get_lib
 from ._lib import get_default_library_path
@@ -56,10 +56,10 @@ def _load_library(lib_path: str | Path | None):
 def to_json(
     pdf_path: str | Path,
     *,
-    output_dir: str | Path | None = None,
+    output_file: str | Path | None = None,
     config: ConversionConfig | None = None,
     collect: Literal[False] = False,
-) -> Sequence[Path]: ...
+) -> Path: ...
 
 
 # ---------------------------------------------------------
@@ -69,7 +69,7 @@ def to_json(
 def to_json(
     pdf_path: str | Path,
     *,
-    output_dir: str | Path | None = None,
+    output_file: str | Path | None = None,
     config: ConversionConfig | None = None,
     collect: Literal[True],
 ) -> List[Block]: ...
@@ -78,39 +78,35 @@ def to_json(
 def to_json(
     pdf_path: str | Path,
     *,
-    output_dir: str | Path | None = None,
+    output_file: str | Path | None = None,
     config: ConversionConfig | None = None,
     collect: bool = False,
-) -> Sequence[Path] | List[Block]:
-    """Extract per-page JSON artefacts for ``pdf_path``."""
+) -> Path | List[Block]:
+    """Extract PDF and merge all pages into a single JSON file or return blocks."""
     pdf_path = Path(pdf_path).resolve()
     if not pdf_path.exists():
         raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
 
-    target_dir = (
-        Path(output_dir) if output_dir else pdf_path.with_name(f"{pdf_path.stem}_json")
-    )
-    target_dir.mkdir(parents=True, exist_ok=True)
+    output_path = Path(output_file) if output_file else pdf_path.with_suffix(".json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         _, lib = _load_library((config or ConversionConfig()).resolve_lib_path())
         rc = lib.pdf_to_json(
-            str(pdf_path).encode("utf-8"), str(target_dir).encode("utf-8")
+            str(pdf_path).encode("utf-8"), str(output_path).encode("utf-8")
         )
         if rc != 0:
             raise RuntimeError(f"C extractor reported failure (exit code {rc})")
     except (LibraryLoadError, RuntimeError) as exc:
         raise ExtractionError(str(exc)) from exc
 
-    json_paths = sorted(target_dir.glob("page_*.json"))
     if collect:
-        import itertools
         import json
 
-        pages = (json.loads(path.read_text(encoding="utf-8")) for path in json_paths)
-        return list(itertools.chain.from_iterable(pages))
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        return data
 
-    return tuple(json_paths)
+    return output_path
 
 
 def extract_page_json(

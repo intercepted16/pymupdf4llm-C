@@ -10,7 +10,7 @@ use std::str::Utf8Error;
 
 // --- FFI to C library ---
 unsafe extern "C" {
-    fn pdf_to_json(pdf_path: *const c_char, output_dir: *const c_char) -> i32;
+    fn pdf_to_json(pdf_path: *const c_char, output_file: *const c_char) -> i32;
     fn page_to_json_string(pdf_path: *const c_char, page_number: i32) -> *mut c_char;
     fn free(ptr: *mut c_void);
 }
@@ -174,30 +174,23 @@ where
 
 // --- Public API ---
 
-/// Extract all pages and parse the JSON payloads into strongly typed Blocks.
+/// Extract all pages and parse the JSON payload into strongly typed Blocks.
 pub fn to_json_collect<P, Q>(
     pdf_path: P,
-    output_dir: Option<Q>,
-) -> Result<Vec<Vec<Block>>, PdfError>
+    output_file: Option<Q>,
+) -> Result<Vec<Block>, PdfError>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
 {
-    let files = to_json(pdf_path, output_dir)?;
-    let mut pages = Vec::with_capacity(files.len());
-
-    for path in files {
-        let contents = fs::read_to_string(&path)?;
-        // Deserializing into strict Block types instead of generic Value
-        let blocks: Vec<Block> = serde_json::from_str(&contents)?;
-        pages.push(blocks);
-    }
-
-    Ok(pages)
+    let json_file = to_json(pdf_path, output_file)?;
+    let contents = fs::read_to_string(&json_file)?;
+    let blocks: Vec<Block> = serde_json::from_str(&contents)?;
+    Ok(blocks)
 }
 
-/// Extract an entire PDF into JSON files, returning the generated paths.
-pub fn to_json<P, Q>(pdf_path: P, output_dir: Option<Q>) -> Result<Vec<PathBuf>, PdfError>
+/// Extract an entire PDF into a single merged JSON file.
+pub fn to_json<P, Q>(pdf_path: P, output_file: Option<Q>) -> Result<PathBuf, PdfError>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
@@ -207,10 +200,14 @@ where
         return Err(PdfError::MissingInput(pdf_path.to_path_buf()));
     }
 
-    let target_dir = resolve_output_dir(pdf_path, output_dir);
-    fs::create_dir_all(&target_dir)?;
+    let target_file = resolve_output_file(pdf_path, output_file);
+    
+    if let Some(parent) = target_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
-    convert_document(pdf_path, &target_dir)
+    convert_document(pdf_path, &target_file)?;
+    Ok(target_file)
 }
 
 /// Extract a single page into an in-memory JSON string.
@@ -247,58 +244,27 @@ where
 
 // --- Internal Helpers ---
 
-fn convert_document(pdf_path: &Path, target_dir: &Path) -> Result<Vec<PathBuf>, PdfError> {
+fn convert_document(pdf_path: &Path, target_file: &Path) -> Result<(), PdfError> {
     let pdf_c = path_to_cstring(pdf_path)?;
-    let dir_c = path_to_cstring(target_dir)?;
+    let file_c = path_to_cstring(target_file)?;
 
-    let ret = unsafe { pdf_to_json(pdf_c.as_ptr(), dir_c.as_ptr()) };
+    let ret = unsafe { pdf_to_json(pdf_c.as_ptr(), file_c.as_ptr()) };
     if ret != 0 {
         return Err(PdfError::CError(ret));
     }
 
-    gather_json_files(target_dir)
+    Ok(())
 }
 
-fn resolve_output_dir<P>(pdf_path: &Path, output_dir: Option<P>) -> PathBuf
+fn resolve_output_file<P>(pdf_path: &Path, output_file: Option<P>) -> PathBuf
 where
     P: AsRef<Path>,
 {
-    output_dir
-        .map(|dir| dir.as_ref().to_path_buf())
-        .unwrap_or_else(|| default_output_dir(pdf_path))
+    output_file
+        .map(|file| file.as_ref().to_path_buf())
+        .unwrap_or_else(|| default_output_file(pdf_path))
 }
 
-fn default_output_dir(pdf_path: &Path) -> PathBuf {
-    let stem = pdf_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output");
-    let parent = pdf_path.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!("{stem}_json"))
-}
-
-fn path_to_cstring(path: &Path) -> Result<CString, PdfError> {
-    let lossy = path.to_string_lossy();
-    CString::new(lossy.as_bytes()).map_err(PdfError::from)
-}
-
-fn gather_json_files(dir: &Path) -> Result<Vec<PathBuf>, PdfError> {
-    let mut entries: Vec<PathBuf> = Vec::new();
-
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().map(|ext| ext == "json").unwrap_or(false)
-            && path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| name.starts_with("page_"))
-                .unwrap_or(false)
-        {
-            entries.push(path);
-        }
-    }
-
-    entries.sort();
-    Ok(entries)
+fn default_output_file(pdf_path: &Path) -> PathBuf {
+    pdf_path.with_extension("json")
 }

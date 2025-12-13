@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
 #define MAX_COLUMNS 32
 
@@ -600,6 +599,64 @@ static void consolidate_lists(BlockArray* blocks)
     blocks->count = write_idx;
 }
 
+static int list_has_visible_content(ListItems* list)
+{
+    if (!list || list->count == 0)
+        return 0;
+
+    for (int i = 0; i < list->count; i++)
+    {
+        if (!list->items[i])
+            continue;
+
+        for (const char* p = list->items[i]; *p; p++)
+        {
+            unsigned char ch = (unsigned char)*p;
+            if (ch >= 33 && ch <= 126)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+static int table_has_visible_content(BlockInfo* info)
+{
+    if (!info || !info->table_data)
+        return 0;
+
+    // Check if table has meaningful dimensions
+    if (info->row_count <= 0 || info->column_count <= 0)
+        return 0;
+
+    // Check if table has actual cell content
+    Table* table = (Table*)info->table_data;
+    if (!table || table->count <= 0)
+        return 0;
+
+    // Look for at least one cell with visible text
+    for (int row_idx = 0; row_idx < table->count; row_idx++)
+    {
+        if (!table->rows[row_idx].cells)
+            continue;
+
+        for (int cell_idx = 0; cell_idx < table->rows[row_idx].count; cell_idx++)
+        {
+            const char* text = table->rows[row_idx].cells[cell_idx].text;
+            if (!text)
+                continue;
+
+            for (const char* p = text; *p; p++)
+            {
+                unsigned char ch = (unsigned char)*p;
+                if (ch >= 33 && ch <= 126)
+                    return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
 {
     Buffer* json = buffer_create(1024);
@@ -611,6 +668,24 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
     for (size_t i = 0; i < blocks->count; ++i)
     {
         BlockInfo* info = &blocks->items[i];
+
+        // Skip tables with no visible content
+        if (info->type == BLOCK_TABLE)
+        {
+            if (!table_has_visible_content(info))
+            {
+                continue;
+            }
+        }
+
+        // Skip lists with no visible content
+        if (info->type == BLOCK_LIST)
+        {
+            if (!list_has_visible_content(info->list_items))
+            {
+                continue;
+            }
+        }
 
         // Skip blocks with no visible content (non-table, non-figure, non-list blocks)
         if (info->type != BLOCK_TABLE && info->type != BLOCK_FIGURE && info->type != BLOCK_LIST)
@@ -686,7 +761,6 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                              info->bbox.y1);
         buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
         buffer_append_format(json, ",\"font_weight\":\"%s\"", font_weight_from_ratio(info->bold_ratio));
-        buffer_append_format(json, ",\"page_number\":%d", info->page_number);
         buffer_append_format(json, ",\"length\":%zu", info->text_chars);
 
         if (info->type == BLOCK_PARAGRAPH)
