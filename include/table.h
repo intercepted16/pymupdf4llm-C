@@ -3,6 +3,7 @@
 
 #include "mupdf/fitz.h"
 #include "block_info.h"
+#include "font_metrics.h"
 
 // A struct to represent a horizontal or vertical edge
 typedef struct
@@ -69,6 +70,7 @@ typedef struct
 
 TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_number, BlockArray* blocks);
 TableArray* find_tables_with_mupdf_native(const char* pdf_path, int page_number);
+TableArray* synthesize_text_table_two_col(fz_context* ctx, fz_stext_page* textpage, const PageMetrics* metrics);
 void free_table_array(TableArray* tables);
 
 #endif // TABLE_H

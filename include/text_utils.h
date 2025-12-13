@@ -76,4 +76,14 @@ const char* font_weight_from_ratio(float ratio);
  */
 size_t count_unicode_chars(const char* text);
 
+/**
+ * @brief Extract text from a rectangle with proper spacing between characters.
+ *
+ * @param ctx MuPDF context.
+ * @param page Text page structure.
+ * @param rect Rectangle to extract text from.
+ * @return Newly allocated string with properly spaced text or NULL on failure.
+ */
+char* extract_text_with_spacing(void* ctx, void* page, const void* rect);
+
 #endif // TEXT_UTILS_H

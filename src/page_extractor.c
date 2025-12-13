@@ -72,6 +72,50 @@ static void populate_table_metrics(BlockInfo* info, int row_count, int column_co
     info->confidence = base_score;
 }
 
+// Check if text is a lone number (likely page number)
+static bool is_lone_page_number(const char* text)
+{
+    if (!text)
+        return false;
+
+    // Skip leading whitespace
+    while (*text == ' ' || *text == '\t')
+        text++;
+
+    // Count digits
+    const char* start = text;
+    int digit_count = 0;
+    while (*text >= '0' && *text <= '9')
+    {
+        digit_count++;
+        text++;
+    }
+
+    // Skip trailing whitespace
+    while (*text == ' ' || *text == '\t')
+        text++;
+
+    // Must be only digits (1-4 digits typical for page numbers) and nothing else
+    return digit_count > 0 && digit_count <= 4 && *text == '\0' && (text - start) == digit_count;
+}
+
+// Check if block is in top or bottom margin area
+static bool is_in_margin_area(fz_rect bbox, fz_rect page_bbox, float threshold_percent)
+{
+    float page_height = page_bbox.y1 - page_bbox.y0;
+    float threshold = page_height * threshold_percent;
+
+    // Top margin
+    if (bbox.y0 < page_bbox.y0 + threshold)
+        return true;
+
+    // Bottom margin
+    if (bbox.y1 > page_bbox.y1 - threshold)
+        return true;
+
+    return false;
+}
+
 static void classify_block(BlockInfo* info, const PageMetrics* metrics, const char* normalized_text)
 {
     if (!info || !metrics)
@@ -332,6 +376,16 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
 
     classify_block(info, metrics, info->text);
     info->page_number = page_number;
+
+    // Skip lone page numbers in margin areas
+    if (is_lone_page_number(info->text))
+    {
+        // Mark for removal by clearing text
+        free(info->text);
+        info->text = strdup("");
+        info->text_chars = 0;
+        info->type = BLOCK_OTHER;
+    }
 
     if (info->type == BLOCK_TABLE)
     {
@@ -954,11 +1008,56 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
         collect_font_stats(textpage, &stats);
         PageMetrics metrics = compute_page_metrics(&stats);
 
+        fz_rect page_bounds = fz_bound_page(ctx, page);
+
         for (fz_stext_block* block = textpage->first_block; block; block = block->next)
         {
             if (block->type == FZ_STEXT_BLOCK_TEXT)
             {
                 process_text_block(ctx, block, &metrics, &blocks, page_number);
+
+                // Filter blocks in top/bottom margins if they look like headers/footers
+                if (blocks.count > 0)
+                {
+                    BlockInfo* info = &blocks.items[blocks.count - 1];
+
+                    // Filter very narrow blocks (likely rotated margin text)
+                    float width = info->bbox.x1 - info->bbox.x0;
+                    float height = info->bbox.y1 - info->bbox.y0;
+                    if (width < 30.0f && height > 200.0f)
+                    {
+                        free(info->text);
+                        info->text = strdup("");
+                        info->text_chars = 0;
+                    }
+
+                    if (is_in_margin_area(info->bbox, page_bounds, 0.08f)) // 8% margin
+                    {
+                        // If it's short text in margin, likely a header/footer
+                        if (info->text_chars > 0 && info->text_chars < 200)
+                        {
+                            // Filter page numbers
+                            if (is_lone_page_number(info->text))
+                            {
+                                free(info->text);
+                                info->text = strdup("");
+                                info->text_chars = 0;
+                            }
+                            // Filter typical headers (short text in top margin)
+                            else if (info->bbox.y0 < page_bounds.y0 + (page_bounds.y1 - page_bounds.y0) * 0.08f)
+                            {
+                                // Header in top margin - filter if it looks like a title/header
+                                // (mostly uppercase, contains common header keywords, or is a heading type)
+                                if (info->type == BLOCK_HEADING || is_all_caps(info->text))
+                                {
+                                    free(info->text);
+                                    info->text = strdup("");
+                                    info->text_chars = 0;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             else if (block->type == FZ_STEXT_BLOCK_IMAGE)
             {
@@ -967,6 +1066,82 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
         }
 
         TableArray* tables = find_tables_on_page(ctx, doc, page_number, &blocks);
+
+        // Validate line-based tables: check for quality issues
+        // A valid table should have:
+        // - At least 2 rows with content
+        // - Consistent column counts across all rows (no variation)
+        // - At least 2 columns
+        // - No empty rows (all rows should have cells)
+        // - Valid bounding boxes (within reasonable page bounds)
+        bool tables_valid = false;
+        fz_rect page_rect = fz_bound_page(ctx, page);
+
+        if (tables && tables->count > 0)
+        {
+            for (int t = 0; t < tables->count; t++)
+            {
+                Table* table = &tables->tables[t];
+
+                // Check if table bbox is within reasonable page bounds
+                // Allow some margin but reject obviously invalid values
+                if (table->bbox.y0 < page_rect.y0 - 50 || table->bbox.y1 > page_rect.y1 + 50 ||
+                    table->bbox.x0 < page_rect.x0 - 50 || table->bbox.x1 > page_rect.x1 + 50)
+                {
+                    continue; // Skip this table, invalid bounds
+                }
+
+                int rows_with_cells = 0;
+                int empty_rows = 0;
+                int expected_cols = -1;
+                bool consistent = true;
+
+                for (int r = 0; r < table->count; r++)
+                {
+                    TableRow* row = &table->rows[r];
+
+                    // Check for valid row bbox
+                    if (row->bbox.y0 < page_rect.y0 - 10 || row->bbox.y1 > page_rect.y1 + 10)
+                    {
+                        empty_rows++; // Treat as invalid/empty
+                        continue;
+                    }
+
+                    if (row->count > 0)
+                    {
+                        rows_with_cells++;
+                        if (expected_cols < 0)
+                            expected_cols = row->count;
+                        else if (row->count != expected_cols)
+                            consistent = false;
+                    }
+                    else
+                    {
+                        empty_rows++;
+                    }
+                }
+
+                // Valid if: all rows have same column count, at least 2 valid rows,
+                // at least 2 columns, and no empty/invalid rows
+                if (rows_with_cells >= 2 && expected_cols >= 2 && consistent && empty_rows == 0)
+                {
+                    tables_valid = true;
+                    break;
+                }
+            }
+        }
+
+        // Fallback: synthesize a 2-column table from text if no valid line-based tables found
+        if (!tables_valid)
+        {
+            if (tables)
+            {
+                free_table_array(tables);
+                tables = NULL;
+            }
+            tables = synthesize_text_table_two_col(ctx, textpage, &metrics);
+        }
+
         if (tables && tables->count > 0)
         {
             // Extract text from each table and add as new blocks
@@ -984,14 +1159,14 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                         TableCell* cell = &row->cells[c];
                         fz_rect cell_rect = cell->bbox;
 
-                        // Extract text from this cell using fz_copy_rectangle
-                        char* cell_text = fz_copy_rectangle(ctx, textpage, cell_rect, 0);
+                        // Extract text with proper spacing between words
+                        char* cell_text = extract_text_with_spacing(ctx, textpage, &cell_rect);
 
-                        if (cell_text)
+                        if (cell_text && cell_text[0])
                         {
                             // Normalize cell text: remove newlines and excess whitespace
                             char* normalized = normalize_text(cell_text);
-                            fz_free(ctx, cell_text);
+                            free(cell_text);
 
                             if (normalized)
                             {
@@ -1005,6 +1180,10 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                                 }
                                 cell->text = normalized; // Store in cell structure
                             }
+                        }
+                        else
+                        {
+                            free(cell_text);
                         }
 
                         if (!cell->text)

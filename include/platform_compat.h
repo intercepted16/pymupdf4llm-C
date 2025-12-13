@@ -70,3 +70,8 @@ static int get_num_cores() {
 #ifndef NAN
 #define NAN (__builtin_nanf("0x7fc00000"))
 #endif
+
+/* Safe isnan check - standard isnan can have issues with -ffast-math */
+#ifndef SAFE_ISNAN
+#define SAFE_ISNAN(x) ((x) != (x))
+#endif

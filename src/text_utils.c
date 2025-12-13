@@ -8,6 +8,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+#include <mupdf/fitz.h>
 
 char* normalize_text(const char* input)
 {
@@ -316,4 +319,92 @@ size_t count_unicode_chars(const char* text)
         p++;
     }
     return count;
+}
+
+char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_ptr)
+{
+    fz_context* ctx = (fz_context*)ctx_ptr;
+    fz_stext_page* page = (fz_stext_page*)page_ptr;
+    fz_rect rect = *(fz_rect*)rect_ptr;
+
+    if (!ctx || !page)
+        return NULL;
+
+    Buffer* buf = buffer_create(256);
+    if (!buf)
+        return NULL;
+
+    float prev_x1 = -1000.0f;
+    float prev_y = -1000.0f;
+    float char_spacing_threshold = 0.0f;
+
+    // Walk through all blocks and lines
+    for (fz_stext_block* block = page->first_block; block; block = block->next)
+    {
+        if (block->type != FZ_STEXT_BLOCK_TEXT)
+            continue;
+
+        for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
+        {
+            // Check if line intersects with rectangle
+            if (line->bbox.y1 < rect.y0 || line->bbox.y0 > rect.y1)
+                continue;
+
+            // Extract characters with proper spacing
+            for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
+            {
+                fz_rect char_box = fz_rect_from_quad(ch->quad);
+                if (char_box.x0 < rect.x0 || char_box.x1 > rect.x1)
+                    continue;
+                if (char_box.y0 < rect.y0 || char_box.y1 > rect.y1)
+                    continue;
+                if (ch->c == 0 || ch->c == 0xFEFF)
+                    continue; // Skip null and BOM
+
+                // Check if we need to add space before this character (based on gap detection)
+                if (buf->length > 0)
+                {
+                    float y_diff = fabsf(char_box.y0 - prev_y);
+                    float x_gap = char_box.x0 - prev_x1;
+
+                    // Use character size for tolerance, like the original code
+                    float tolerance = ch->size * 0.5f;
+                    if (tolerance < 3.0f)
+                        tolerance = 3.0f;
+
+                    // New line if Y position changed significantly
+                    if (y_diff > ch->size * 0.5f)
+                    {
+                        buffer_append_char(buf, ' ');
+                    }
+                    // Add space if there's a gap larger than tolerance
+                    else if (x_gap > tolerance)
+                    {
+                        buffer_append_char(buf, ' ');
+                    }
+                }
+
+                // Append the character
+                if (ch->c < 0x80)
+                {
+                    buffer_append_char(buf, (char)ch->c);
+                }
+                else
+                {
+                    // UTF-8 encoding
+                    char utf8[8];
+                    int len = fz_runetochar(utf8, ch->c);
+                    utf8[len] = '\0';
+                    buffer_append(buf, utf8);
+                }
+
+                prev_x1 = char_box.x1;
+                prev_y = char_box.y0;
+            }
+        }
+    }
+
+    char* result = buf->length > 0 ? strdup(buf->data) : strdup("");
+    buffer_destroy(buf);
+    return result;
 }
