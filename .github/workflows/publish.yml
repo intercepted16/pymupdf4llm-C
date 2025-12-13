@@ -51,39 +51,8 @@ jobs:
           git sparse-checkout set include
           cd ..
 
-# ---------------------------------------------------------
-      # 2. Handle Shared Libraries
-      # ---------------------------------------------------------
-      - name: Ensure lib directory
-        run: mkdir -p lib/mupdf
-
-      - name: Cache MuPDF Libraries
-        id: cache-libs
-        uses: actions/cache@v4
-        with:
-          path: lib/mupdf
-          # Key depends on OS and library URLs (or a version)
-          # Using runner.os is essential as the downloaded files are different
-          key: ${{ runner.os }}-mupdf-libs-v1-${{ hashFiles('lib/mupdf/*') }} 
-
-      # We download these to the HOST. cibuildwheel will copy them 
-      # into the container because they are inside the project root.
-      - name: Download MuPDF libs (Linux)
-        if: runner.os == 'Linux' && steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          echo "Cache miss, downloading MuPDF Linux libs."
-          # No need to check if files exist, the cache check handles it
-          curl -L -o lib/mupdf/libmupdf.so "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so"
-          curl -L -o lib/mupdf/libmupdf.so.27.0 "https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so.27.0"
-          chmod +x lib/mupdf/*.so*
-
-      - name: Download MuPDF libs (macOS)
-        if: runner.os == 'macOS' && steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          echo "Cache miss, downloading MuPDF macOS libs."
-          # No need to check if file exists, the cache check handles it
-          curl -L -o lib/mupdf/libmupdf.dylib "https://hc-cdn.hel1.your-objectstorage.com/s/v3/afdd1f4b0bac94758cf8ded314ac48eff3b1190f_libmupdf.dylib"
-          chmod +x lib/mupdf/*.dylib*
+      # Note: MuPDF shared libraries are downloaded inside the cibuildwheel
+      # container via before-all hooks in pyproject.toml to avoid auditwheel issues.
       # ---------------------------------------------------------
       # 3. Build Wheels
       # ---------------------------------------------------------

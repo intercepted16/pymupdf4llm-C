@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pymupdf4llm-c"
-version = "1.0.6"
+version = "1.1.0"
 description = "C-backed PDF to Markdown conversion with Python fallbacks"
 authors = [{ name = "PyMuPDF4LLM Contributors" }]
 readme = "README.md"
@@ -153,11 +153,23 @@ build = [
 # ---------------------------------------------------------
 [tool.cibuildwheel.linux]
 environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf" }
+before-all = [
+    "mkdir -p lib/mupdf",
+    "curl -L -o lib/mupdf/libmupdf.so https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so",
+    "curl -L -o lib/mupdf/libmupdf.so.27.0 https://hc-cdn.hel1.your-objectstorage.com/s/v3/f98260ca303e2b4647e4a6285a63c726a5774168_libmupdf.so.27.0",
+    "chmod +x lib/mupdf/*.so*"
+]
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 # ---------------------------------------------------------
 # macOS Specifics
 # ---------------------------------------------------------
 [tool.cibuildwheel.macos]
+before-all = [
+    "mkdir -p lib/mupdf",
+    "curl -L -o lib/mupdf/libmupdf.dylib https://hc-cdn.hel1.your-objectstorage.com/s/v3/afdd1f4b0bac94758cf8ded314ac48eff3b1190f_libmupdf.dylib",
+    "chmod +x lib/mupdf/*.dylib*"
+]
 # We must override the repair command to inject the library path.
 # We use a multi-line string (""") for clarity.
 repair-wheel-command = """
