@@ -208,9 +208,7 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
         return -1;
 
     /* Determine number of CPU cores */
-    int num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
-    if (num_cores <= 0)
-        num_cores = 1;
+    int num_cores = get_num_cores();
 
     /* Open document once to get total page count */
     fz_context* ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);

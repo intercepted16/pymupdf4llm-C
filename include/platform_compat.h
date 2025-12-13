@@ -15,6 +15,12 @@
 #define strcasecmp _stricmp
 #endif
 
+#ifdef __APPLE__
+#include <strings.h>   // for strncasecmp, strcasecmp
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 #include "mupdf/fitz.h"
 
 #ifndef FZ_STEXT_CLIP
@@ -55,8 +61,24 @@
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
-#ifdef __APPLE__
-#include <strings.h> // for strncasecmp, strcasecmp on macOS
+/* --- Added CPU detection helper for multiprocess --- */
+static inline int get_num_cores(void)
+{
+    int num_cores = 1;
+
+#if defined(_SC_NPROCESSORS_ONLN)
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    if (n > 0)
+        num_cores = (int)n;
+#elif defined(__APPLE__)
+    int n;
+    size_t len = sizeof(n);
+    int mib[2] = {CTL_HW, HW_AVAILCPU};
+    if (sysctl(mib, 2, &n, &len, NULL, 0) == 0 && n > 0)
+        num_cores = n;
 #endif
+
+    return num_cores;
+}
 
 #endif // PLATFORM_COMPAT_H
