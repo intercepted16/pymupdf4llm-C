@@ -44,6 +44,9 @@ static void add_figure_block(BlockArray* blocks, fz_rect bbox, int page_number)
     info->type = BLOCK_FIGURE;
     info->avg_font_size = 0.0f;
     info->bold_ratio = 0.0f;
+    info->italic_ratio = 0.0f;
+    info->mono_ratio = 0.0f;
+    info->strikeout_ratio = 0.0f;
     info->line_count = 0;
     info->line_spacing_avg = 0.0f;
     info->column_count = 0;
@@ -52,6 +55,12 @@ static void add_figure_block(BlockArray* blocks, fz_rect bbox, int page_number)
     info->cell_count = 0;
     info->confidence = 0.0f;
     info->page_number = page_number;
+    info->heading_level = 0;
+    info->column_index = 0;
+    info->spans = NULL;
+    info->links = NULL;
+    info->has_superscript = 0;
+    info->is_footnote = 0;
 }
 
 static void populate_table_metrics(BlockInfo* info, int row_count, int column_count, float consistency)
@@ -123,6 +132,14 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
 
     const float heading_threshold = metrics->median_font_size * 1.25f;
     const size_t text_length = info->text_chars;
+
+    // Check for list FIRST if the block has multiple lines
+    // This prevents "1. Item\n2. Item\n3. Item" from being classified as a numeric heading
+    if (info->line_count > 1 && starts_with_bullet(normalized_text))
+    {
+        info->type = BLOCK_LIST;
+        return;
+    }
 
     bool heading_candidate = false;
     bool font_based_candidate = false;
@@ -214,6 +231,10 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
 
     int total_chars = 0;
     int bold_chars = 0;
+    int italic_chars = 0;
+    int mono_chars = 0;
+    int strikeout_chars = 0;
+    int superscript_chars = 0;
     float font_size_sum = 0.0f;
     int line_count = 0;
     float line_spacing_sum = 0.0f;
@@ -228,6 +249,17 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
     int rows_with_content = 0;
 
     float prev_line_y0 = NAN;
+
+    // Track spans for styled output
+    TextSpan* first_span = NULL;
+    TextSpan* last_span = NULL;
+
+    // Current span accumulator
+    Buffer* span_buf = buffer_create(64);
+    TextStyle current_style = {0};
+    float current_font_size = 0.0f;
+    fz_rect current_span_bbox = fz_empty_rect;
+    bool has_any_superscript = false;
 
     for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
     {
@@ -265,12 +297,65 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
             total_chars += 1;
 
             font_size_sum += ch->size;
-            if (ch->font && fz_font_is_bold(ctx, ch->font))
+
+            // Detect text styling
+            bool is_bold = ch->font && fz_font_is_bold(ctx, ch->font);
+            bool is_italic = ch->font && fz_font_is_italic(ctx, ch->font);
+            bool is_mono = ch->font && fz_font_is_monospaced(ctx, ch->font);
+
+            // Check for superscript via flags (MuPDF uses flags & 1 for superscript)
+            // Also check position-based detection
+            fz_rect char_box = fz_rect_from_quad(ch->quad);
+            bool is_super = is_superscript_position(char_box.y0, line->bbox.y0, ch->size);
+            bool is_sub = is_subscript_position(char_box.y1, line->bbox.y1, ch->size);
+
+            if (is_bold)
+                bold_chars++;
+            if (is_italic)
+                italic_chars++;
+            if (is_mono)
+                mono_chars++;
+            if (is_super)
             {
-                bold_chars += 1;
+                superscript_chars++;
+                has_any_superscript = true;
             }
 
-            fz_rect char_box = fz_rect_from_quad(ch->quad);
+            // Build styled spans
+            TextStyle char_style = {0};
+            char_style.bold = is_bold ? 1 : 0;
+            char_style.italic = is_italic ? 1 : 0;
+            char_style.monospace = is_mono ? 1 : 0;
+            char_style.superscript = is_super ? 1 : 0;
+            char_style.subscript = is_sub ? 1 : 0;
+
+            // Check if style changed - if so, flush current span
+            if (span_buf->length > 0 && (memcmp(&char_style, &current_style, sizeof(TextStyle)) != 0 ||
+                                         fabsf(ch->size - current_font_size) > 0.5f))
+            {
+                // Flush current span
+                TextSpan* span = create_text_span(span_buf->data, current_style, current_font_size, current_span_bbox);
+                if (span)
+                {
+                    if (!first_span)
+                        first_span = span;
+                    else
+                        last_span->next = span;
+                    last_span = span;
+                }
+                buffer_clear(span_buf);
+                current_span_bbox = fz_empty_rect;
+            }
+
+            // Accumulate to current span
+            buffer_append_format(span_buf, "%.*s", byte_count, utf8);
+            current_style = char_style;
+            current_font_size = ch->size;
+            if (fz_is_empty_rect(current_span_bbox))
+                current_span_bbox = char_box;
+            else
+                current_span_bbox = fz_union_rect(current_span_bbox, char_box);
+
             float x0 = char_box.x0;
             float x1 = char_box.x1;
             float gap = (!isnan(prev_x1)) ? fabsf(x0 - prev_x1) : 0.0f;
@@ -318,10 +403,26 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
         }
     }
 
+    // Flush any remaining span
+    if (span_buf->length > 0)
+    {
+        TextSpan* span = create_text_span(span_buf->data, current_style, current_font_size, current_span_bbox);
+        if (span)
+        {
+            if (!first_span)
+                first_span = span;
+            else
+                last_span->next = span;
+            last_span = span;
+        }
+    }
+    buffer_destroy(span_buf);
+
     BlockInfo* info = block_array_push(blocks);
     if (!info)
     {
         buffer_destroy(text_buf);
+        free_spans(first_span);
         return;
     }
 
@@ -333,21 +434,27 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
         normalized = strdup("");
     }
 
-    char* normalized_bullets = normalize_bullets(normalized);
-    if (normalized_bullets)
-    {
-        free(normalized);
-        normalized = normalized_bullets;
-    }
+    // NOTE: We no longer call normalize_bullets() here because it replaces
+    // all list markers (including numbered ones like "1.") with "-", which
+    // prevents proper detection of numbered vs bulleted lists later.
+    // The original markers are preserved in info->text for list type detection.
 
     info->text = normalized ? normalized : strdup("");
     info->text_chars = count_unicode_chars(info->text);
     info->bbox = block->bbox;
     info->avg_font_size = (total_chars > 0) ? (font_size_sum / (float)total_chars) : 0.0f;
     info->bold_ratio = (total_chars > 0) ? ((float)bold_chars / (float)total_chars) : 0.0f;
+    info->italic_ratio = (total_chars > 0) ? ((float)italic_chars / (float)total_chars) : 0.0f;
+    info->mono_ratio = (total_chars > 0) ? ((float)mono_chars / (float)total_chars) : 0.0f;
+    info->strikeout_ratio = (total_chars > 0) ? ((float)strikeout_chars / (float)total_chars) : 0.0f;
     info->line_count = line_count;
     info->line_spacing_avg = (line_spacing_samples > 0) ? (line_spacing_sum / (float)line_spacing_samples) : 0.0f;
     info->column_count = column_count;
+    info->has_superscript = has_any_superscript ? 1 : 0;
+    info->spans = first_span;
+    info->links = NULL;
+    info->heading_level = 0;
+    info->column_index = 0;
 
     int effective_rows = rows_with_content > 0 ? rows_with_content : line_count;
 
@@ -376,6 +483,18 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
 
     classify_block(info, metrics, info->text);
     info->page_number = page_number;
+
+    // Detect code blocks based on monospace ratio
+    if (info->mono_ratio >= 0.8f && info->type == BLOCK_PARAGRAPH && info->line_count >= 2)
+    {
+        info->type = BLOCK_CODE;
+    }
+
+    // Detect potential footnotes (superscripted small text at certain positions)
+    if (has_any_superscript && info->text_chars < 100 && superscript_chars > total_chars / 2)
+    {
+        info->is_footnote = 1;
+    }
 
     // Skip lone page numbers in margin areas
     if (is_lone_page_number(info->text))
@@ -461,10 +580,16 @@ static void collect_font_stats(fz_stext_page* textpage, FontStats* stats)
     }
 }
 
-static char* clean_list_item_text(const char* text)
+static char* clean_list_item_text(const char* text, ListType* out_type, char** out_prefix)
 {
     if (!text)
+    {
+        if (out_type)
+            *out_type = LIST_BULLETED;
+        if (out_prefix)
+            *out_prefix = NULL;
         return strdup("");
+    }
 
     const char* p = text;
 
@@ -472,24 +597,44 @@ static char* clean_list_item_text(const char* text)
     while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
         p++;
 
-    // Skip bullet markers: -, •, o, *, ·, etc.
-    if (*p == '-' || *p == '*' || *p == 'o' || (unsigned char)*p == 0xE2 /* UTF-8 bullet */)
+    // Detect list type and extract prefix
+    ListType type = LIST_BULLETED;
+    char* prefix = NULL;
+
+    // Check for numbered list first
+    if (starts_with_number(p, &prefix))
     {
+        type = LIST_NUMBERED;
+        // Skip past the prefix
+        while (*p && *p != ' ' && *p != '\t')
+            p++;
+    }
+    // Check for bullet markers: -, •, o, *, ·, etc.
+    else if (*p == '-' || *p == '*' || *p == 'o' || (unsigned char)*p == 0xE2 /* UTF-8 bullet */)
+    {
+        type = LIST_BULLETED;
         p++;
         // Skip the rest of multi-byte UTF-8 bullets
         while (*p && ((unsigned char)*p & 0xC0) == 0x80)
             p++;
-
-        // Skip whitespace after bullet
-        while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
-            p++;
     }
+
+    // Skip whitespace after marker
+    while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+        p++;
 
     // Now copy the rest, replacing newlines with spaces
     size_t len = strlen(p);
     char* result = (char*)malloc(len + 1);
     if (!result)
+    {
+        free(prefix);
+        if (out_type)
+            *out_type = LIST_BULLETED;
+        if (out_prefix)
+            *out_prefix = NULL;
         return strdup("");
+    }
 
     size_t write = 0;
     bool last_space = false;
@@ -526,6 +671,14 @@ static char* clean_list_item_text(const char* text)
         write--;
 
     result[write] = '\0';
+
+    if (out_type)
+        *out_type = type;
+    if (out_prefix)
+        *out_prefix = prefix;
+    else
+        free(prefix);
+
     return result;
 }
 
@@ -575,6 +728,28 @@ static void consolidate_lists(BlockArray* blocks)
             list_end = j;
         }
 
+        // First pass: count total lines across all blocks to allocate proper space
+        int total_line_count = 0;
+        for (size_t j = list_start; j <= list_end; ++j)
+        {
+            BlockInfo* item = &blocks->items[j];
+            if (!item->text || strlen(item->text) == 0)
+            {
+                total_line_count++;
+                continue;
+            }
+            // Count newlines to determine number of items
+            const char* p = item->text;
+            int lines = 1;
+            while (*p)
+            {
+                if (*p == '\n')
+                    lines++;
+                p++;
+            }
+            total_line_count += lines;
+        }
+
         // Create consolidated list block
         ListItems* list_items = (ListItems*)malloc(sizeof(ListItems));
         if (!list_items)
@@ -588,13 +763,19 @@ static void consolidate_lists(BlockArray* blocks)
             continue;
         }
 
-        int item_count = (int)(list_end - list_start + 1);
-        list_items->items = (char**)calloc(item_count, sizeof(char*));
+        list_items->items = (char**)calloc(total_line_count, sizeof(char*));
+        list_items->indents = (int*)calloc(total_line_count, sizeof(int));
+        list_items->types = (ListType*)calloc(total_line_count, sizeof(ListType));
+        list_items->prefixes = (char**)calloc(total_line_count, sizeof(char*));
         list_items->count = 0;
-        list_items->capacity = item_count;
+        list_items->capacity = total_line_count;
 
-        if (!list_items->items)
+        if (!list_items->items || !list_items->indents || !list_items->types || !list_items->prefixes)
         {
+            free(list_items->items);
+            free(list_items->indents);
+            free(list_items->types);
+            free(list_items->prefixes);
             free(list_items);
             if (write_idx != read_idx)
             {
@@ -603,6 +784,12 @@ static void consolidate_lists(BlockArray* blocks)
             write_idx++;
             continue;
         }
+
+        // Get base x position for indent calculation
+        float base_x = blocks->items[list_start].bbox.x0;
+        float base_font_size = blocks->items[list_start].avg_font_size;
+        if (base_font_size < 8.0f)
+            base_font_size = 12.0f;
 
         // Collect all list item texts
         fz_rect combined_bbox = blocks->items[list_start].bbox;
@@ -614,13 +801,91 @@ static void consolidate_lists(BlockArray* blocks)
         {
             BlockInfo* item = &blocks->items[j];
 
-            // Clean the list item text (remove bullets, newlines, etc.)
-            char* cleaned = clean_list_item_text(item->text);
-            list_items->items[list_items->count++] = cleaned;
+            // Split the block's text by newlines - each line is a separate list item
+            if (!item->text || strlen(item->text) == 0)
+            {
+                // Empty block, skip
+                continue;
+            }
+
+            // Make a copy to tokenize
+            char* text_copy = strdup(item->text);
+            if (!text_copy)
+                continue;
+
+            char* saveptr = NULL;
+            char* line = strtok_r(text_copy, "\n", &saveptr);
+
+            while (line)
+            {
+                // Skip empty lines
+                const char* p = line;
+                while (*p == ' ' || *p == '\t')
+                    p++;
+                if (*p == '\0')
+                {
+                    line = strtok_r(NULL, "\n", &saveptr);
+                    continue;
+                }
+
+                // Check if we need to expand the arrays
+                if (list_items->count >= list_items->capacity)
+                {
+                    int new_cap = list_items->capacity * 2;
+                    char** new_items = (char**)realloc(list_items->items, new_cap * sizeof(char*));
+                    int* new_indents = (int*)realloc(list_items->indents, new_cap * sizeof(int));
+                    ListType* new_types = (ListType*)realloc(list_items->types, new_cap * sizeof(ListType));
+                    char** new_prefixes = (char**)realloc(list_items->prefixes, new_cap * sizeof(char*));
+                    if (new_items && new_indents && new_types && new_prefixes)
+                    {
+                        list_items->items = new_items;
+                        list_items->indents = new_indents;
+                        list_items->types = new_types;
+                        list_items->prefixes = new_prefixes;
+                        list_items->capacity = new_cap;
+                    }
+                }
+
+                // Clean the list item text and get its type
+                ListType item_type;
+                char* item_prefix = NULL;
+                char* cleaned = clean_list_item_text(line, &item_type, &item_prefix);
+
+                list_items->items[list_items->count] = cleaned;
+                list_items->types[list_items->count] = item_type;
+                list_items->prefixes[list_items->count] = item_prefix;
+
+                // Calculate indent level based on x position offset
+                float x_offset = item->bbox.x0 - base_x;
+                int indent = (int)(x_offset / (base_font_size * 2));
+                if (indent < 0)
+                    indent = 0;
+                if (indent > 6)
+                    indent = 6;
+                list_items->indents[list_items->count] = indent;
+
+                list_items->count++;
+
+                line = strtok_r(NULL, "\n", &saveptr);
+            }
+
+            free(text_copy);
 
             // Free the original text
             free(item->text);
             item->text = NULL;
+
+            // Free spans and links
+            if (item->spans)
+            {
+                free_spans(item->spans);
+                item->spans = NULL;
+            }
+            if (item->links)
+            {
+                free_links(item->links);
+                item->links = NULL;
+            }
 
             // Expand combined bbox
             combined_bbox = fz_union_rect(combined_bbox, item->bbox);
@@ -635,12 +900,15 @@ static void consolidate_lists(BlockArray* blocks)
         consolidated.text_chars = 0;
         consolidated.bbox = combined_bbox;
         consolidated.type = BLOCK_LIST;
-        consolidated.avg_font_size = total_font_size / item_count;
-        consolidated.bold_ratio = total_bold_ratio / item_count;
+        int block_count = (int)(list_end - list_start + 1);
+        consolidated.avg_font_size = block_count > 0 ? total_font_size / block_count : 12.0f;
+        consolidated.bold_ratio = block_count > 0 ? total_bold_ratio / block_count : 0.0f;
         consolidated.line_count = total_lines;
         consolidated.line_spacing_avg = blocks->items[list_start].line_spacing_avg;
         consolidated.page_number = blocks->items[list_start].page_number;
         consolidated.list_items = list_items;
+        consolidated.spans = NULL;
+        consolidated.links = NULL;
 
         blocks->items[write_idx] = consolidated;
         write_idx++;
@@ -817,9 +1085,180 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         buffer_append_format(json, ",\"font_weight\":\"%s\"", font_weight_from_ratio(info->bold_ratio));
         buffer_append_format(json, ",\"length\":%zu", info->text_chars);
 
-        if (info->type == BLOCK_PARAGRAPH)
+        // Add styling ratios
+        if (info->bold_ratio > 0.0f)
+            buffer_append_format(json, ",\"bold_ratio\":%.2f", info->bold_ratio);
+        if (info->italic_ratio > 0.0f)
+            buffer_append_format(json, ",\"italic_ratio\":%.2f", info->italic_ratio);
+        if (info->mono_ratio > 0.0f)
+            buffer_append_format(json, ",\"mono_ratio\":%.2f", info->mono_ratio);
+        if (info->has_superscript)
+            buffer_append(json, ",\"has_superscript\":true");
+        if (info->is_footnote)
+            buffer_append(json, ",\"is_footnote\":true");
+
+        if (info->type == BLOCK_PARAGRAPH || info->type == BLOCK_CODE)
         {
             buffer_append_format(json, ",\"lines\":%d", info->line_count);
+        }
+
+        if (info->type == BLOCK_HEADING && info->heading_level > 0)
+        {
+            buffer_append_format(json, ",\"level\":%d", info->heading_level);
+        }
+
+        // Serialize styled spans if present (only if there's actual styling)
+        // Skip spans if there's only one unstyled span - it would just duplicate the text field
+        if (info->spans)
+        {
+            // Count spans and check for any styling
+            int span_count = 0;
+            int has_styling = 0;
+            for (TextSpan* s = info->spans; s; s = s->next)
+            {
+                span_count++;
+                if (s->style.bold || s->style.italic || s->style.monospace || s->style.strikeout ||
+                    s->style.superscript || s->style.subscript)
+                {
+                    has_styling = 1;
+                }
+            }
+
+            // Only output spans if there are multiple spans OR if there's actual styling
+            if (span_count > 1 || has_styling)
+            {
+                buffer_append(json, ",\"spans\":[");
+                int first_span = 1;
+                for (TextSpan* span = info->spans; span; span = span->next)
+                {
+                    if (!first_span)
+                        buffer_append(json, ",");
+                    first_span = 0;
+
+                    buffer_append(json, "{\"text\":\"");
+                    // Escape span text
+                    if (span->text)
+                    {
+                        for (const char* p = span->text; *p; p++)
+                        {
+                            unsigned char ch = (unsigned char)*p;
+                            switch (ch)
+                            {
+                            case '\\':
+                                buffer_append(json, "\\\\");
+                                break;
+                            case '"':
+                                buffer_append(json, "\\\"");
+                                break;
+                            case '\n':
+                                buffer_append(json, "\\n");
+                                break;
+                            case '\r':
+                                buffer_append(json, "\\r");
+                                break;
+                            case '\t':
+                                buffer_append(json, "\\t");
+                                break;
+                            default:
+                                if (ch < 0x20)
+                                    buffer_append_format(json, "\\u%04x", ch);
+                                else
+                                    buffer_append_char(json, (char)ch);
+                                break;
+                            }
+                        }
+                    }
+                    buffer_append(json, "\"");
+
+                    // Add style flags
+                    if (span->style.bold)
+                        buffer_append(json, ",\"bold\":true");
+                    if (span->style.italic)
+                        buffer_append(json, ",\"italic\":true");
+                    if (span->style.monospace)
+                        buffer_append(json, ",\"monospace\":true");
+                    if (span->style.strikeout)
+                        buffer_append(json, ",\"strikeout\":true");
+                    if (span->style.superscript)
+                        buffer_append(json, ",\"superscript\":true");
+                    if (span->style.subscript)
+                        buffer_append(json, ",\"subscript\":true");
+
+                    buffer_append_format(json, ",\"font_size\":%.2f", span->font_size);
+                    buffer_append(json, "}");
+                }
+                buffer_append(json, "]");
+            }
+        }
+
+        // Serialize links if present
+        if (info->links)
+        {
+            buffer_append(json, ",\"links\":[");
+            int first_link = 1;
+            for (Link* link = info->links; link; link = link->next)
+            {
+                if (!first_link)
+                    buffer_append(json, ",");
+                first_link = 0;
+
+                buffer_append(json, "{\"text\":\"");
+                // Escape link text
+                if (link->text)
+                {
+                    for (const char* p = link->text; *p; p++)
+                    {
+                        unsigned char ch = (unsigned char)*p;
+                        switch (ch)
+                        {
+                        case '\\':
+                            buffer_append(json, "\\\\");
+                            break;
+                        case '"':
+                            buffer_append(json, "\\\"");
+                            break;
+                        case '\n':
+                            buffer_append(json, "\\n");
+                            break;
+                        case '\r':
+                            buffer_append(json, "\\r");
+                            break;
+                        case '\t':
+                            buffer_append(json, "\\t");
+                            break;
+                        default:
+                            if (ch < 0x20)
+                                buffer_append_format(json, "\\u%04x", ch);
+                            else
+                                buffer_append_char(json, (char)ch);
+                            break;
+                        }
+                    }
+                }
+                buffer_append(json, "\",\"uri\":\"");
+                // Escape URI
+                if (link->uri)
+                {
+                    for (const char* p = link->uri; *p; p++)
+                    {
+                        unsigned char ch = (unsigned char)*p;
+                        switch (ch)
+                        {
+                        case '\\':
+                            buffer_append(json, "\\\\");
+                            break;
+                        case '"':
+                            buffer_append(json, "\\\"");
+                            break;
+                        default:
+                            buffer_append_char(json, (char)ch);
+                            break;
+                        }
+                    }
+                }
+                buffer_append(json, "\"}");
+            }
+            buffer_append(json, "]");
         }
 
         if (info->type == BLOCK_LIST && info->list_items)
@@ -831,8 +1270,8 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                 if (li > 0)
                     buffer_append(json, ",");
 
+                buffer_append(json, "{\"text\":\"");
                 // Escape list item text
-                buffer_append(json, "\"");
                 if (list->items[li])
                 {
                     for (const char* p = list->items[li]; *p; p++)
@@ -865,6 +1304,38 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     }
                 }
                 buffer_append(json, "\"");
+
+                // Add list item type
+                if (list->types)
+                {
+                    buffer_append_format(json, ",\"list_type\":\"%s\"",
+                                         list->types[li] == LIST_NUMBERED ? "numbered" : "bulleted");
+                }
+
+                // Add indent level
+                if (list->indents)
+                {
+                    buffer_append_format(json, ",\"indent\":%d", list->indents[li]);
+                }
+
+                // Add original prefix for numbered lists
+                if (list->prefixes && list->prefixes[li])
+                {
+                    buffer_append(json, ",\"prefix\":\"");
+                    for (const char* p = list->prefixes[li]; *p; p++)
+                    {
+                        unsigned char ch = (unsigned char)*p;
+                        if (ch == '"')
+                            buffer_append(json, "\\\"");
+                        else if (ch == '\\')
+                            buffer_append(json, "\\\\");
+                        else
+                            buffer_append_char(json, (char)ch);
+                    }
+                    buffer_append(json, "\"");
+                }
+
+                buffer_append(json, "}");
             }
             buffer_append(json, "]");
         }
@@ -872,9 +1343,40 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         if (info->type == BLOCK_TABLE && info->table_data)
         {
             Table* table = (Table*)info->table_data;
-            buffer_append_format(json, ",\"row_count\":%d", info->row_count);
+
+            // Count visible rows and cells first
+            int visible_row_count = 0;
+            int visible_cell_count = 0;
+            for (int r = 0; r < table->count; r++)
+            {
+                TableRow* row = &table->rows[r];
+                int row_has_visible = 0;
+                for (int c = 0; c < row->count; c++)
+                {
+                    TableCell* cell = &row->cells[c];
+                    if (fz_is_empty_rect(cell->bbox))
+                        continue;
+                    if (cell->text)
+                    {
+                        for (const char* p = cell->text; *p; p++)
+                        {
+                            unsigned char ch = (unsigned char)*p;
+                            if (ch >= 33 && ch <= 126)
+                            {
+                                visible_cell_count++;
+                                row_has_visible = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (row_has_visible)
+                    visible_row_count++;
+            }
+
+            buffer_append_format(json, ",\"row_count\":%d", visible_row_count);
             buffer_append_format(json, ",\"col_count\":%d", info->column_count);
-            buffer_append_format(json, ",\"cell_count\":%d", info->cell_count);
+            buffer_append_format(json, ",\"cell_count\":%d", visible_cell_count);
             if (info->confidence > 0.0f)
             {
                 buffer_append_format(json, ",\"confidence\":%.2f", info->confidence);
@@ -882,11 +1384,42 @@ static Buffer* serialize_blocks_to_json(const BlockArray* blocks)
 
             // Serialize rows
             buffer_append(json, ",\"rows\":[");
+            int first_row = 1;
             for (int r = 0; r < table->count; r++)
             {
-                if (r > 0)
-                    buffer_append(json, ",");
                 TableRow* row = &table->rows[r];
+
+                // First, check if this row has any visible cells
+                int row_has_visible_cells = 0;
+                for (int c = 0; c < row->count; c++)
+                {
+                    TableCell* cell = &row->cells[c];
+                    if (fz_is_empty_rect(cell->bbox))
+                        continue;
+                    if (cell->text)
+                    {
+                        for (const char* p = cell->text; *p; p++)
+                        {
+                            unsigned char ch = (unsigned char)*p;
+                            if (ch >= 33 && ch <= 126)
+                            {
+                                row_has_visible_cells = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if (row_has_visible_cells)
+                        break;
+                }
+
+                // Skip empty rows
+                if (!row_has_visible_cells)
+                    continue;
+
+                if (!first_row)
+                    buffer_append(json, ",");
+                first_row = 0;
+
                 buffer_append(json, "{");
                 buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", row->bbox.x0, row->bbox.y0, row->bbox.x1,
                                      row->bbox.y1);
@@ -985,6 +1518,7 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
 
     fz_page* page = NULL;
     fz_stext_page* textpage = NULL;
+    fz_link* page_links = NULL;
     BlockArray blocks;
     block_array_init(&blocks);
 
@@ -1004,6 +1538,9 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             fz_throw(ctx, FZ_ERROR_GENERIC, "text extraction failed");
         }
 
+        // Load page links for later association with text blocks
+        page_links = fz_load_links(ctx, page);
+
         FontStats stats;
         collect_font_stats(textpage, &stats);
         PageMetrics metrics = compute_page_metrics(&stats);
@@ -1015,6 +1552,32 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             if (block->type == FZ_STEXT_BLOCK_TEXT)
             {
                 process_text_block(ctx, block, &metrics, &blocks, page_number);
+
+                // Associate links with this block
+                if (blocks.count > 0 && page_links)
+                {
+                    BlockInfo* info = &blocks.items[blocks.count - 1];
+                    for (fz_link* link = page_links; link; link = link->next)
+                    {
+                        // Check if link overlaps with this block
+                        fz_rect isect = fz_intersect_rect(info->bbox, link->rect);
+                        if (!fz_is_empty_rect(isect))
+                        {
+                            // Extract text at link location and create link entry
+                            char* link_text = extract_text_with_spacing(ctx, textpage, &link->rect);
+                            if (link_text && link_text[0] && link->uri)
+                            {
+                                Link* new_link = create_link(link_text, link->uri, link->rect);
+                                if (new_link)
+                                {
+                                    new_link->next = info->links;
+                                    info->links = new_link;
+                                }
+                            }
+                            free(link_text);
+                        }
+                    }
+                }
 
                 // Filter blocks in top/bottom margins if they look like headers/footers
                 if (blocks.count > 0)
@@ -1341,6 +1904,10 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
     }
     fz_always(ctx)
     {
+        if (page_links)
+        {
+            fz_drop_link(ctx, page_links);
+        }
         if (textpage)
         {
             fz_drop_stext_page(ctx, textpage);

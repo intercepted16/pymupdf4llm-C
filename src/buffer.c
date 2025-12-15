@@ -128,3 +128,12 @@ int buffer_append_n(Buffer* buf, const char* data, size_t len)
     buf->data[buf->length] = '\0';
     return 0;
 }
+
+void buffer_clear(Buffer* buf)
+{
+    if (!buf)
+        return;
+    buf->length = 0;
+    if (buf->data)
+        buf->data[0] = '\0';
+}

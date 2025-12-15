@@ -1186,7 +1186,26 @@ static void find_cells(PointArray* intersections, SpatialHash* hash, CellArray* 
     }
 }
 
+// Threshold for splitting tables: large gaps indicate separate tables
+#define TABLE_SPLIT_GAP_THRESHOLD 50.0
+
+// Helper to initialize a new table in the array
+static Table* add_new_table(TableArray* tables)
+{
+    int new_idx = tables->count;
+    tables->count++;
+    tables->tables = realloc(tables->tables, tables->count * sizeof(Table));
+    if (!tables->tables)
+        return NULL;
+    Table* table = &tables->tables[new_idx];
+    table->bbox = fz_empty_rect;
+    table->count = 0;
+    table->rows = malloc(16 * sizeof(TableRow));
+    return table;
+}
+
 // Optimized: Use precomputed column boundaries and better allocation strategy
+// Now also detects large gaps between rows to split into multiple tables
 static TableArray* group_cells_into_tables(CellArray* cells)
 {
     if (cells->count == 0)
@@ -1216,22 +1235,19 @@ static TableArray* group_cells_into_tables(CellArray* cells)
     if (!tables)
         return NULL;
 
-    tables->count = 1;
-    tables->tables = malloc(sizeof(Table));
-    if (!tables->tables)
+    tables->count = 0;
+    tables->tables = NULL;
+
+    // Add first table
+    Table* table = add_new_table(tables);
+    if (!table)
     {
         free(tables);
         return NULL;
     }
+    int row_capacity = 16;
 
-    Table* table = &tables->tables[0];
-    table->bbox = fz_empty_rect;
-    table->count = 0;
-
-    // Preallocate row array based on estimated count
-    int estimated_rows = (int)sqrt(cells->count) + 4;
-    table->rows = malloc(estimated_rows * sizeof(TableRow));
-    int row_capacity = estimated_rows;
+    float prev_row_y1 = -1000.0f;
 
     int i = 0;
     while (i < cells->count)
@@ -1243,6 +1259,19 @@ static TableArray* group_cells_into_tables(CellArray* cells)
         while (j < cells->count && fabs(cells->items[j].y0 - current_y0) < ROW_Y_TOLERANCE)
         {
             j++;
+        }
+
+        // Check for large gap indicating a new table
+        if (prev_row_y1 > -500.0f && (current_y0 - prev_row_y1) > TABLE_SPLIT_GAP_THRESHOLD)
+        {
+            // Start a new table
+            table = add_new_table(tables);
+            if (!table)
+            {
+                free_table_array(tables);
+                return NULL;
+            }
+            row_capacity = 16;
         }
 
         if (table->count >= row_capacity)
@@ -1265,159 +1294,203 @@ static TableArray* group_cells_into_tables(CellArray* cells)
         }
 
         table->bbox = fz_union_rect(table->bbox, row->bbox);
+        prev_row_y1 = row->bbox.y1; // Track for gap detection
         i = j;
     }
 
-    // Find the row with the most cells (likely a complete data row, not header)
-    int max_cells = 0;
-    int max_row_idx = 0;
-    for (int r = 0; r < table->count; r++)
+    // Process each table: normalize columns and clean up
+    for (int t = 0; t < tables->count; t++)
     {
-        if (table->rows[r].count > max_cells)
+        table = &tables->tables[t];
+        if (table->count == 0)
+            continue;
+
+        // Find the row with the most cells (likely a complete data row, not header)
+        int max_cells = 0;
+        int max_row_idx = 0;
+        for (int r = 0; r < table->count; r++)
         {
-            max_cells = table->rows[r].count;
-            max_row_idx = r;
-        }
-    }
-
-    // Use the reference row to establish column positions
-    float* col_x_positions = malloc(max_cells * sizeof(float));
-    for (int c = 0; c < max_cells; c++)
-    {
-        col_x_positions[c] = table->rows[max_row_idx].cells[c].bbox.x0;
-    }
-    int col_count = max_cells;
-
-    // Now normalize all rows to have the same column structure
-    for (int r = 0; r < table->count; r++)
-    {
-        TableRow* row = &table->rows[r];
-        TableCell* old_cells = row->cells;
-        int old_count = row->count;
-
-        // Create new cell array with proper column count
-        TableCell* new_cells = malloc(col_count * sizeof(TableCell));
-        row->cells = new_cells;
-        row->count = col_count;
-
-        // Initialize all cells as empty first
-        for (int c = 0; c < col_count; c++)
-        {
-            new_cells[c].bbox = fz_empty_rect;
-            new_cells[c].text = NULL;
-        }
-
-        // Map old cells to new column positions
-        for (int old_c = 0; old_c < old_count; old_c++)
-        {
-            fz_rect old_bbox = old_cells[old_c].bbox;
-
-            // Find best matching column based on x position
-            int best_col = -1;
-            float best_dist = 1000000.0f;
-
-            for (int new_c = 0; new_c < col_count; new_c++)
+            if (table->rows[r].count > max_cells)
             {
-                float dist = fabsf(old_bbox.x0 - col_x_positions[new_c]);
-                if (dist < best_dist)
+                max_cells = table->rows[r].count;
+                max_row_idx = r;
+            }
+        }
+
+        if (max_cells == 0)
+            continue;
+
+        // Use the reference row to establish column positions
+        float* col_x_positions = malloc(max_cells * sizeof(float));
+        for (int c = 0; c < max_cells; c++)
+        {
+            col_x_positions[c] = table->rows[max_row_idx].cells[c].bbox.x0;
+        }
+        int col_count = max_cells;
+
+        // Now normalize all rows to have the same column structure
+        for (int r = 0; r < table->count; r++)
+        {
+            TableRow* row = &table->rows[r];
+            TableCell* old_cells = row->cells;
+            int old_count = row->count;
+
+            // Create new cell array with proper column count
+            TableCell* new_cells = malloc(col_count * sizeof(TableCell));
+            row->cells = new_cells;
+            row->count = col_count;
+
+            // Initialize all cells as empty first
+            for (int c = 0; c < col_count; c++)
+            {
+                new_cells[c].bbox = fz_empty_rect;
+                new_cells[c].text = NULL;
+            }
+
+            // Map old cells to new column positions
+            for (int old_c = 0; old_c < old_count; old_c++)
+            {
+                fz_rect old_bbox = old_cells[old_c].bbox;
+
+                // Find best matching column based on x position
+                int best_col = -1;
+                float best_dist = 1000000.0f;
+
+                for (int new_c = 0; new_c < col_count; new_c++)
                 {
-                    best_dist = dist;
-                    best_col = new_c;
+                    float dist = fabsf(old_bbox.x0 - col_x_positions[new_c]);
+                    if (dist < best_dist)
+                    {
+                        best_dist = dist;
+                        best_col = new_c;
+                    }
+                }
+
+                if (best_col >= 0)
+                {
+                    new_cells[best_col].bbox = old_bbox;
                 }
             }
 
-            if (best_col >= 0)
-            {
-                new_cells[best_col].bbox = old_bbox;
-            }
+            free(old_cells);
         }
 
-        free(old_cells);
-    }
+        free(col_x_positions);
 
-    free(col_x_positions);
-
-    // Remove completely empty columns
-    if (table->count > 0)
-    {
-        int* keep_cols = calloc(col_count, sizeof(int));
-        int new_col_count = 0;
-
-        // Mark columns that have at least one non-empty cell
-        for (int c = 0; c < col_count; c++)
+        // Remove completely empty columns
+        if (table->count > 0 && table->rows[0].count > 0)
         {
-            for (int r = 0; r < table->count; r++)
+            col_count = table->rows[0].count;
+            int* keep_cols = calloc(col_count, sizeof(int));
+            int new_col_count = 0;
+
+            // Mark columns that have at least one non-empty cell
+            for (int c = 0; c < col_count; c++)
             {
-                if (!fz_is_empty_rect(table->rows[r].cells[c].bbox))
+                for (int r = 0; r < table->count; r++)
                 {
-                    keep_cols[c] = 1;
+                    if (!fz_is_empty_rect(table->rows[r].cells[c].bbox))
+                    {
+                        keep_cols[c] = 1;
+                        break;
+                    }
+                }
+                if (keep_cols[c])
+                {
+                    new_col_count++;
+                }
+            }
+
+            // If we're removing columns, rebuild all rows
+            if (new_col_count < col_count && new_col_count > 0)
+            {
+                for (int r = 0; r < table->count; r++)
+                {
+                    TableRow* row = &table->rows[r];
+                    TableCell* old_cells = row->cells;
+                    TableCell* new_cells = malloc(new_col_count * sizeof(TableCell));
+                    row->cells = new_cells;
+
+                    int new_c = 0;
+                    for (int c = 0; c < col_count; c++)
+                    {
+                        if (keep_cols[c])
+                        {
+                            new_cells[new_c] = old_cells[c];
+                            new_c++;
+                        }
+                    }
+                    row->count = new_col_count;
+                    free(old_cells);
+                }
+            }
+
+            free(keep_cols);
+        }
+
+        // Remove completely empty rows
+        int write_idx = 0;
+        for (int r = 0; r < table->count; r++)
+        {
+            TableRow* row = &table->rows[r];
+            int has_content = 0;
+
+            for (int c = 0; c < row->count; c++)
+            {
+                if (!fz_is_empty_rect(row->cells[c].bbox))
+                {
+                    has_content = 1;
                     break;
                 }
             }
-            if (keep_cols[c])
-            {
-                new_col_count++;
-            }
-        }
 
-        // If we're removing columns, rebuild all rows
-        if (new_col_count < col_count && new_col_count > 0)
-        {
-            for (int r = 0; r < table->count; r++)
+            if (has_content)
             {
-                TableRow* row = &table->rows[r];
-                TableCell* old_cells = row->cells;
-                TableCell* new_cells = malloc(new_col_count * sizeof(TableCell));
-                row->cells = new_cells;
-
-                int new_c = 0;
-                for (int c = 0; c < col_count; c++)
+                if (write_idx != r)
                 {
-                    if (keep_cols[c])
-                    {
-                        new_cells[new_c] = old_cells[c];
-                        new_c++;
-                    }
+                    table->rows[write_idx] = table->rows[r];
                 }
-                row->count = new_col_count;
-                free(old_cells);
+                write_idx++;
+            }
+            else
+            {
+                // Free empty row cells
+                free(row->cells);
             }
         }
-
-        free(keep_cols);
+        table->count = write_idx;
     }
 
-    // Remove completely empty rows
-    int write_idx = 0;
-    for (int r = 0; r < table->count; r++)
+    // Remove empty tables
+    int table_write_idx = 0;
+    for (int t = 0; t < tables->count; t++)
     {
-        TableRow* row = &table->rows[r];
-        int has_content = 0;
-
-        for (int c = 0; c < row->count; c++)
+        if (tables->tables[t].count >= 2 && tables->tables[t].rows[0].count >= 2)
         {
-            if (!fz_is_empty_rect(row->cells[c].bbox))
+            if (table_write_idx != t)
             {
-                has_content = 1;
-                break;
+                tables->tables[table_write_idx] = tables->tables[t];
             }
-        }
-
-        if (has_content)
-        {
-            if (write_idx != r)
-            {
-                table->rows[write_idx] = table->rows[r];
-            }
-            write_idx++;
+            table_write_idx++;
         }
         else
         {
-            // Free empty row cells
-            free(row->cells);
+            // Free invalid table
+            for (int r = 0; r < tables->tables[t].count; r++)
+            {
+                free(tables->tables[t].rows[r].cells);
+            }
+            free(tables->tables[t].rows);
         }
     }
-    table->count = write_idx;
+    tables->count = table_write_idx;
+
+    if (tables->count == 0)
+    {
+        free(tables->tables);
+        free(tables);
+        return NULL;
+    }
 
     return tables;
 }

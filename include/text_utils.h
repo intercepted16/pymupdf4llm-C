@@ -61,6 +61,15 @@ bool starts_with_numeric_heading(const char* text);
 bool starts_with_bullet(const char* text);
 
 /**
+ * @brief Identify numbered list prefixes (1., 2., a., etc.).
+ *
+ * @param text Input string.
+ * @param out_prefix If not NULL, receives the prefix string (caller must free).
+ * @return true if the string starts with a numbered list marker.
+ */
+bool starts_with_number(const char* text, char** out_prefix);
+
+/**
  * @brief Map a bold ratio to the textual weight label expected in JSON output.
  *
  * @param ratio Fraction of characters detected as bold.
@@ -85,5 +94,34 @@ size_t count_unicode_chars(const char* text);
  * @return Newly allocated string with properly spaced text or NULL on failure.
  */
 char* extract_text_with_spacing(void* ctx, void* page, const void* rect);
+
+/**
+ * @brief Check if a character is a superscript based on its position.
+ *
+ * @param char_y0 The top Y coordinate of the character.
+ * @param line_y0 The top Y coordinate of the line.
+ * @param char_size The character size.
+ * @return true if the character appears to be superscript.
+ */
+bool is_superscript_position(float char_y0, float line_y0, float char_size);
+
+/**
+ * @brief Check if a character is a subscript based on its position.
+ *
+ * @param char_y1 The bottom Y coordinate of the character.
+ * @param line_y1 The bottom Y coordinate of the line.
+ * @param char_size The character size.
+ * @return true if the character appears to be subscript.
+ */
+bool is_subscript_position(float char_y1, float line_y1, float char_size);
+
+/**
+ * @brief Get the indentation level from leading whitespace.
+ *
+ * @param text Input string.
+ * @param base_indent Base indent width (typically from first list item).
+ * @return Indentation level (0-based).
+ */
+int get_indent_level(const char* text, float base_indent);
 
 #endif // TEXT_UTILS_H

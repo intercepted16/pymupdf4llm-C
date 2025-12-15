@@ -299,6 +299,119 @@ bool starts_with_bullet(const char* text)
     return false;
 }
 
+bool starts_with_number(const char* text, char** out_prefix)
+{
+    if (!text)
+        return false;
+
+    const char* p = text;
+    while (*p == ' ' || *p == '\t')
+        p++;
+
+    const char* start = p;
+
+    // Check for digit sequence: 1., 2., 10., etc.
+    if (isdigit((unsigned char)*p))
+    {
+        while (isdigit((unsigned char)*p))
+            p++;
+        if ((*p == '.' || *p == ')') && (p[1] == ' ' || p[1] == '\t'))
+        {
+            if (out_prefix)
+            {
+                size_t len = (p - start) + 1;
+                *out_prefix = (char*)malloc(len + 1);
+                if (*out_prefix)
+                {
+                    memcpy(*out_prefix, start, len);
+                    (*out_prefix)[len] = '\0';
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Check for letter sequence: a., b., A., B., etc.
+    if (isalpha((unsigned char)*p) && (p[1] == '.' || p[1] == ')') && (p[2] == ' ' || p[2] == '\t'))
+    {
+        if (out_prefix)
+        {
+            *out_prefix = (char*)malloc(3);
+            if (*out_prefix)
+            {
+                (*out_prefix)[0] = *p;
+                (*out_prefix)[1] = p[1];
+                (*out_prefix)[2] = '\0';
+            }
+        }
+        return true;
+    }
+
+    // Check for Roman numerals: i., ii., iii., I., II., III., etc.
+    if (*p == 'i' || *p == 'v' || *p == 'x' || *p == 'I' || *p == 'V' || *p == 'X')
+    {
+        const char* roman_start = p;
+        while (*p == 'i' || *p == 'v' || *p == 'x' || *p == 'I' || *p == 'V' || *p == 'X')
+            p++;
+        if ((*p == '.' || *p == ')') && (p[1] == ' ' || p[1] == '\t'))
+        {
+            if (out_prefix)
+            {
+                size_t len = (p - roman_start) + 1;
+                *out_prefix = (char*)malloc(len + 1);
+                if (*out_prefix)
+                {
+                    memcpy(*out_prefix, roman_start, len);
+                    (*out_prefix)[len] = '\0';
+                }
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool is_superscript_position(float char_y0, float line_y0, float char_size)
+{
+    // In PDF coordinates, y increases downward
+    // A superscript character's top (y0) is higher (smaller value) than the line's top
+    // Use char_size to avoid false positives from minor positioning differences
+    float threshold = char_size * 0.3f;
+    return (line_y0 - char_y0) > threshold; // char_y0 is noticeably above line_y0
+}
+
+bool is_subscript_position(float char_y1, float line_y1, float char_size)
+{
+    // In PDF coordinates, y increases downward
+    // A subscript character's bottom (y1) is lower (larger value) than the line's bottom
+    float threshold = char_size * 0.3f;
+    return (char_y1 - line_y1) > threshold; // char_y1 is noticeably below line_y1
+}
+
+int get_indent_level(const char* text, float base_indent)
+{
+    if (!text || base_indent <= 0)
+        return 0;
+
+    int spaces = 0;
+    while (*text == ' ')
+    {
+        spaces++;
+        text++;
+    }
+    while (*text == '\t')
+    {
+        spaces += 4; // Treat tab as 4 spaces
+        text++;
+    }
+
+    // Calculate indent level (each level is typically 2-4 spaces)
+    float indent_width = base_indent > 0 ? base_indent : 4.0f;
+    return (int)(spaces / indent_width);
+}
+
 const char* font_weight_from_ratio(float ratio)
 {
     return (ratio >= 0.6f) ? "bold" : "normal";
@@ -336,7 +449,7 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
 
     float prev_x1 = -1000.0f;
     float prev_y = -1000.0f;
-    float char_spacing_threshold = 0.0f;
+    int prev_char = 0; // Track previous character for context
 
     // Walk through all blocks and lines
     for (fz_stext_block* block = page->first_block; block; block = block->next)
@@ -367,18 +480,45 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
                     float y_diff = fabsf(char_box.y0 - prev_y);
                     float x_gap = char_box.x0 - prev_x1;
 
-                    // Use character size for tolerance, like the original code
-                    float tolerance = ch->size * 0.5f;
-                    if (tolerance < 3.0f)
-                        tolerance = 3.0f;
+                    // Base tolerance on character size
+                    float x_tolerance = ch->size * 0.5f;
+                    if (x_tolerance < 3.0f)
+                        x_tolerance = 3.0f;
+
+                    // Y tolerance needs to be more generous due to FZ_STEXT_ACCURATE_BBOXES
+                    // Punctuation like '.' and ',' have different baseline positions
+                    float y_tolerance = ch->size * 0.8f; // More generous for Y
+
+                    // Be more lenient for punctuation, digits, and currency symbols
+                    // These often have tight kerning or baseline differences
+                    int is_punct_or_digit =
+                        (ch->c == '.' || ch->c == ',' || ch->c == '$' || ch->c == '%' || ch->c == ':' || ch->c == ';' ||
+                         ch->c == '\'' || ch->c == '"' || ch->c == '-' || ch->c == '(' || ch->c == ')' ||
+                         (ch->c >= '0' && ch->c <= '9'));
+                    int prev_is_punct_or_digit =
+                        (prev_char == '.' || prev_char == ',' || prev_char == '$' || prev_char == '%' ||
+                         prev_char == ':' || prev_char == ';' || prev_char == '\'' || prev_char == '"' ||
+                         prev_char == '-' || prev_char == '(' || prev_char == ')' ||
+                         (prev_char >= '0' && prev_char <= '9'));
+
+                    // Increase tolerance significantly if either character is punctuation/digit
+                    if (is_punct_or_digit || prev_is_punct_or_digit)
+                    {
+                        x_tolerance = ch->size * 1.5f; // Much higher tolerance for X
+                        y_tolerance = ch->size * 1.5f; // Much higher tolerance for Y
+                        if (x_tolerance < 8.0f)
+                            x_tolerance = 8.0f;
+                        if (y_tolerance < 10.0f)
+                            y_tolerance = 10.0f;
+                    }
 
                     // New line if Y position changed significantly
-                    if (y_diff > ch->size * 0.5f)
+                    if (y_diff > y_tolerance)
                     {
                         buffer_append_char(buf, ' ');
                     }
                     // Add space if there's a gap larger than tolerance
-                    else if (x_gap > tolerance)
+                    else if (x_gap > x_tolerance)
                     {
                         buffer_append_char(buf, ' ');
                     }
@@ -400,6 +540,7 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
 
                 prev_x1 = char_box.x1;
                 prev_y = char_box.y0;
+                prev_char = ch->c;
             }
         }
     }

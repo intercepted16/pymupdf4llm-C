@@ -89,11 +89,13 @@ class TestJsonExtraction:
         lists = [b for b in blocks if b.get("type") == "list"]
         assert lists, "Expected list blocks for bullet content"
 
-        # List content is in 'items' field, not 'text'
+        # List content is in 'items' field with each item being an object containing 'text'
         def has_first_item(block):
             items = block.get("items", [])
             for item in items:
-                if "first" in item.lower():
+                # Items are now objects with 'text', 'list_type', etc.
+                item_text = item.get("text", "") if isinstance(item, dict) else item
+                if "first" in item_text.lower():
                     return True
             return False
 

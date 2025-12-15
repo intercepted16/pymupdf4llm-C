@@ -14,8 +14,55 @@ typedef enum
     BLOCK_TABLE,     /**< Table structure. */
     BLOCK_LIST,      /**< Bullet or numbered list. */
     BLOCK_FIGURE,    /**< Non-textual figure or image. */
+    BLOCK_CODE,      /**< Code block (monospace text). */
+    BLOCK_FOOTNOTE,  /**< Footnote text. */
     BLOCK_OTHER      /**< Fallback classification. */
 } BlockType;
+
+/**
+ * @brief List type (bulleted vs numbered).
+ */
+typedef enum
+{
+    LIST_BULLETED, /**< Bulleted list (-, *, •). */
+    LIST_NUMBERED  /**< Numbered list (1., 2., a., etc.). */
+} ListType;
+
+/**
+ * @brief Text styling flags for a span.
+ */
+typedef struct
+{
+    unsigned int bold : 1;        /**< Text is bold. */
+    unsigned int italic : 1;      /**< Text is italic. */
+    unsigned int monospace : 1;   /**< Text is monospace/code. */
+    unsigned int strikeout : 1;   /**< Text is struck out. */
+    unsigned int superscript : 1; /**< Text is superscript. */
+    unsigned int subscript : 1;   /**< Text is subscript. */
+} TextStyle;
+
+/**
+ * @brief A styled text span within a block.
+ */
+typedef struct TextSpan
+{
+    char* text;            /**< UTF-8 text content. */
+    TextStyle style;       /**< Styling flags. */
+    float font_size;       /**< Font size in points. */
+    fz_rect bbox;          /**< Bounding box. */
+    struct TextSpan* next; /**< Next span in list. */
+} TextSpan;
+
+/**
+ * @brief A hyperlink within a block.
+ */
+typedef struct Link
+{
+    char* text;        /**< Link display text. */
+    char* uri;         /**< Target URI. */
+    fz_rect bbox;      /**< Bounding box. */
+    struct Link* next; /**< Next link in list. */
+} Link;
 
 /**
  * @brief Descriptor for a single extracted block.
@@ -27,9 +74,12 @@ typedef struct BlockInfo BlockInfo;
  */
 typedef struct
 {
-    char** items; /**< Array of list item texts. */
-    int count;    /**< Number of items. */
-    int capacity; /**< Allocated capacity. */
+    char** items;    /**< Array of list item texts. */
+    int* indents;    /**< Indentation levels for each item. */
+    ListType* types; /**< Type of each list item (bulleted/numbered). */
+    char** prefixes; /**< Original prefix for numbered lists (1., a., etc.). */
+    int count;       /**< Number of items. */
+    int capacity;    /**< Allocated capacity. */
 } ListItems;
 
 struct BlockInfo
@@ -40,6 +90,9 @@ struct BlockInfo
     BlockType type;           /**< Final classification label. */
     float avg_font_size;      /**< Average character size in points. */
     float bold_ratio;         /**< Ratio of characters detected as bold. */
+    float italic_ratio;       /**< Ratio of characters detected as italic. */
+    float mono_ratio;         /**< Ratio of characters in monospace font. */
+    float strikeout_ratio;    /**< Ratio of characters struck out. */
     int line_count;           /**< Number of text lines within the block. */
     float line_spacing_avg;   /**< Average line spacing observed. */
     int column_count;         /**< Estimated number of columns (tables). */
@@ -48,8 +101,14 @@ struct BlockInfo
     int cell_count;           /**< Estimated cell count for tables. */
     float confidence;         /**< Heuristic confidence for tables/headings. */
     int page_number;          /**< Zero-based page index. */
+    int heading_level;        /**< Heading level 1-6 (0 if not a heading). */
+    int column_index;         /**< Column index for multi-column layout (0-based). */
     void* table_data;         /**< Pointer to TableArray for BLOCK_TABLE type. */
     ListItems* list_items;    /**< Pointer to ListItems for BLOCK_LIST type. */
+    TextSpan* spans;          /**< Linked list of styled text spans. */
+    Link* links;              /**< Linked list of hyperlinks in this block. */
+    int has_superscript;      /**< Contains superscript text (e.g., footnote ref). */
+    int is_footnote;          /**< Block is a footnote. */
 };
 
 /**
@@ -100,5 +159,40 @@ BlockInfo* block_array_push(BlockArray* arr);
  * @return Negative, zero, or positive to order @p a relative to @p b.
  */
 int compare_block_position(const void* a, const void* b);
+
+/**
+ * @brief Free a linked list of text spans.
+ *
+ * @param spans Head of the span list.
+ */
+void free_spans(TextSpan* spans);
+
+/**
+ * @brief Free a linked list of links.
+ *
+ * @param links Head of the link list.
+ */
+void free_links(Link* links);
+
+/**
+ * @brief Create a new text span.
+ *
+ * @param text The text content (will be copied).
+ * @param style The styling flags.
+ * @param font_size The font size.
+ * @param bbox The bounding box.
+ * @return Newly allocated TextSpan or NULL on failure.
+ */
+TextSpan* create_text_span(const char* text, TextStyle style, float font_size, fz_rect bbox);
+
+/**
+ * @brief Create a new link.
+ *
+ * @param text The display text (will be copied).
+ * @param uri The target URI (will be copied).
+ * @param bbox The bounding box.
+ * @return Newly allocated Link or NULL on failure.
+ */
+Link* create_link(const char* text, const char* uri, fz_rect bbox);
 
 #endif // BLOCK_INFO_H

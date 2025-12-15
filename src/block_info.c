@@ -22,6 +22,10 @@ const char* block_type_to_string(BlockType t)
         return "list";
     case BLOCK_FIGURE:
         return "figure";
+    case BLOCK_CODE:
+        return "code";
+    case BLOCK_FOOTNOTE:
+        return "footnote";
     default:
         return "unknown";
     }
@@ -48,6 +52,54 @@ void block_array_free(BlockArray* arr)
     arr->items = NULL;
     arr->count = 0;
     arr->capacity = 0;
+}
+
+void free_spans(TextSpan* spans)
+{
+    while (spans)
+    {
+        TextSpan* next = spans->next;
+        free(spans->text);
+        free(spans);
+        spans = next;
+    }
+}
+
+void free_links(Link* links)
+{
+    while (links)
+    {
+        Link* next = links->next;
+        free(links->text);
+        free(links->uri);
+        free(links);
+        links = next;
+    }
+}
+
+TextSpan* create_text_span(const char* text, TextStyle style, float font_size, fz_rect bbox)
+{
+    TextSpan* span = (TextSpan*)malloc(sizeof(TextSpan));
+    if (!span)
+        return NULL;
+    span->text = text ? strdup(text) : strdup("");
+    span->style = style;
+    span->font_size = font_size;
+    span->bbox = bbox;
+    span->next = NULL;
+    return span;
+}
+
+Link* create_link(const char* text, const char* uri, fz_rect bbox)
+{
+    Link* link = (Link*)malloc(sizeof(Link));
+    if (!link)
+        return NULL;
+    link->text = text ? strdup(text) : strdup("");
+    link->uri = uri ? strdup(uri) : strdup("");
+    link->bbox = bbox;
+    link->next = NULL;
+    return link;
 }
 
 void block_info_clear(BlockInfo* info)
@@ -86,10 +138,27 @@ void block_info_clear(BlockInfo* info)
         for (int j = 0; j < list->count; ++j)
         {
             free(list->items[j]);
+            if (list->prefixes)
+                free(list->prefixes[j]);
         }
         free(list->items);
+        free(list->indents);
+        free(list->types);
+        free(list->prefixes);
         free(list);
         info->list_items = NULL;
+    }
+
+    if (info->spans)
+    {
+        free_spans(info->spans);
+        info->spans = NULL;
+    }
+
+    if (info->links)
+    {
+        free_links(info->links);
+        info->links = NULL;
     }
 
     info->text_chars = 0;

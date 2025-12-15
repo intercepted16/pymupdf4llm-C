@@ -66,4 +66,11 @@ int buffer_append_format(Buffer* buf, const char* fmt, ...);
  */
 int buffer_append_n(Buffer* buf, const char* data, size_t len);
 
+/**
+ * @brief Clear the buffer contents, resetting length to 0.
+ *
+ * @param buf Target buffer.
+ */
+void buffer_clear(Buffer* buf);
+
 #endif // BUFFER_H
