@@ -29,22 +29,8 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             buffer_append(json, ",");
         first_block = 0;
 
-        Buffer* esc = buffer_create(info->text ? strlen(info->text) + 16 : 16);
-        if (!esc)
-            esc = buffer_create(16);
-        if (esc)
-        {
-            buffer_sappend(esc, info->text);
-        }
-        char* escaped = esc ? strdup(esc->data) : strdup("");
-        if (esc)
-            buffer_destroy(esc);
-        if (!escaped)
-            escaped = strdup("");
-
         buffer_append(json, "{");
         buffer_append_format(json, "\"type\":\"%s\"", block_type_to_string(info->type));
-        buffer_append_format(json, ",\"text\":\"%s\"", escaped ? escaped : "");
         buffer_append_format(json, ",\"bbox\":[%.2f,%.2f,%.2f,%.2f]", info->bbox.x0, info->bbox.y0, info->bbox.x1,
                              info->bbox.y1);
         buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
@@ -73,61 +59,50 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             buffer_append_format(json, ",\"level\":%d", info->heading_level);
         }
 
-        // Serialize styled spans if present (only if there's actual styling)
-        // Skip spans if there's only one unstyled span - it would just duplicate the text field
+        // Serialize styled spans (ALWAYS output spans for blocks with text content)
         if (info->spans)
         {
-            // Count spans and check for any styling
-            int span_count = 0;
-            int has_styling = 0;
-            for (TextSpan* s = info->spans; s; s = s->next)
+            buffer_append(json, ",\"spans\":[");
+            int first_span = 1;
+            for (TextSpan* span = info->spans; span; span = span->next)
             {
-                span_count++;
-                if (s->style.bold || s->style.italic || s->style.monospace || s->style.strikeout ||
-                    s->style.superscript || s->style.subscript)
+                if (!first_span)
+                    buffer_append(json, ",");
+                first_span = 0;
+
+                buffer_append(json, "{\"text\":\"");
+                // Escape span text
+                if (span->text)
                 {
-                    has_styling = 1;
+                    buffer_sappend(json, span->text);
                 }
+                buffer_append(json, "\"");
+
+                // Add style flags
+                if (span->style.bold)
+                    buffer_append(json, ",\"bold\":true");
+                if (span->style.italic)
+                    buffer_append(json, ",\"italic\":true");
+                if (span->style.monospace)
+                    buffer_append(json, ",\"monospace\":true");
+                if (span->style.strikeout)
+                    buffer_append(json, ",\"strikeout\":true");
+                if (span->style.superscript)
+                    buffer_append(json, ",\"superscript\":true");
+                if (span->style.subscript)
+                    buffer_append(json, ",\"subscript\":true");
+
+                buffer_append_format(json, ",\"font_size\":%.2f", span->font_size);
+                buffer_append(json, "}");
             }
-
-            // Only output spans if there are multiple spans OR if there's actual styling
-            if (span_count > 1 || has_styling)
-            {
-                buffer_append(json, ",\"spans\":[");
-                int first_span = 1;
-                for (TextSpan* span = info->spans; span; span = span->next)
-                {
-                    if (!first_span)
-                        buffer_append(json, ",");
-                    first_span = 0;
-
-                    buffer_append(json, "{\"text\":\"");
-                    // Escape span text
-                    if (span->text)
-                    {
-                        buffer_sappend(json, span->text);
-                    }
-                    buffer_append(json, "\"");
-
-                    // Add style flags
-                    if (span->style.bold)
-                        buffer_append(json, ",\"bold\":true");
-                    if (span->style.italic)
-                        buffer_append(json, ",\"italic\":true");
-                    if (span->style.monospace)
-                        buffer_append(json, ",\"monospace\":true");
-                    if (span->style.strikeout)
-                        buffer_append(json, ",\"strikeout\":true");
-                    if (span->style.superscript)
-                        buffer_append(json, ",\"superscript\":true");
-                    if (span->style.subscript)
-                        buffer_append(json, ",\"subscript\":true");
-
-                    buffer_append_format(json, ",\"font_size\":%.2f", span->font_size);
-                    buffer_append(json, "}");
-                }
-                buffer_append(json, "]");
-            }
+            buffer_append(json, "]");
+        }
+        else if (info->text && info->text[0] && info->type != BLOCK_TABLE)
+        {
+            // Synthesize a span if we have text but no spans (e.g. for some lists)
+            buffer_append(json, ",\"spans\":[{\"text\":\"");
+            buffer_sappend(json, info->text);
+            buffer_append(json, "\"}]");
         }
 
         // Serialize links if present
@@ -141,13 +116,13 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_append(json, ",");
                 first_link = 0;
 
-                buffer_append(json, "{\"text\":\"");
+                buffer_append(json, "{\"spans\":[{\"text\":\"");
                 // Escape link text
                 if (link->text)
                 {
                     buffer_sappend(json, link->text);
                 }
-                buffer_append(json, "\",\"uri\":\"");
+                buffer_append(json, "\"}],\"uri\":\"");
                 // Escape URI
                 if (link->uri)
                 {
@@ -167,13 +142,13 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                 if (li > 0)
                     buffer_append(json, ",");
 
-                buffer_append(json, "{\"text\":\"");
+                buffer_append(json, "{\"spans\":[{\"text\":\"");
                 // Escape list item text
                 if (list->items[li])
                 {
                     buffer_sappend(json, list->items[li]);
                 }
-                buffer_append(json, "\"");
+                buffer_append(json, "\"}]");
 
                 // Add list item type
                 if (list->types)
@@ -278,13 +253,13 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_append_format(json, "\"bbox\":[%.2f,%.2f,%.2f,%.2f]", cell->bbox.x0, cell->bbox.y0,
                                          cell->bbox.x1, cell->bbox.y1);
 
-                    // Escape and output cell text
-                    buffer_append(json, ",\"text\":\"");
+                    // Escape and output cell text as spans
+                    buffer_append(json, ",\"spans\":[{\"text\":\"");
                     if (cell->text)
                     {
                         buffer_sappend(json, cell->text);
                     }
-                    buffer_append(json, "\"}");
+                    buffer_append(json, "\"}]}");
                 }
                 buffer_append(json, "]}");
             }
@@ -292,7 +267,6 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         }
 
         buffer_append(json, "}");
-        free(escaped);
     }
 
     buffer_append(json, "]");

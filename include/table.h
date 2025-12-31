@@ -2,6 +2,7 @@
 #define TABLE_H
 
 #include "block_info.h"
+#include "font_metrics.h"
 #define EDGE_MIN_LENGTH 3.0
 #define MAX_COLUMNS 32
 
@@ -19,7 +20,6 @@ typedef struct
     int count;
     int capacity;
 } EdgeArray;
-
 
 // A struct to represent an intersection point
 typedef struct
@@ -46,7 +46,7 @@ typedef struct
 typedef struct
 {
     fz_rect bbox;
-    char* text;  // Cell text content
+    char* text; // Cell text content
 } TableCell;
 
 typedef struct
@@ -69,19 +69,36 @@ typedef struct
     int count;
 } TableArray;
 
+// Word bounding box for word-cutting validation
+typedef struct
+{
+    fz_rect bbox;
+} WordRect;
 
+typedef struct
+{
+    WordRect* items;
+    int count;
+    int capacity;
+} WordRectArray;
 
 TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_number, BlockArray* blocks);
 
 void process_tables_for_page(fz_context* ctx, fz_stext_page* textpage, TableArray* tables, int page_number,
-                              BlockArray* blocks);
+                             BlockArray* blocks);
 
 void free_table_array(TableArray* tables);
-
 
 void init_edge_array(EdgeArray* arr);
 void add_to_edge_array(EdgeArray* arr, Edge item);
 void free_edge_array(EdgeArray* arr);
 
-#endif // TABLE_H
+void init_point_array(PointArray* arr);
+void add_to_point_array(PointArray* arr, Point item);
+void free_point_array(PointArray* arr);
 
+// Horizontal divider table detection
+TableArray* find_horizontal_divider_tables(const EdgeArray* h_edges, fz_context* ctx, fz_stext_page* textpage,
+                                           const PageMetrics* metrics);
+
+#endif // TABLE_H

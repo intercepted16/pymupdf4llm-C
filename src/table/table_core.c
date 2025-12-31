@@ -2,8 +2,8 @@
 
 #include "table.h"
 #include "table_grid.h"
-#include "table_two_column.h"
 #include "table_capture.h"
+#include "table_horizontal.h"
 #include "font_metrics.h"
 #include "text_utils.h"
 #include "spatial_hash.h"
@@ -15,13 +15,192 @@
 #include <stdbool.h>
 
 DEFINE_ARRAY_METHODS_PUBLIC(Edge, Edge, edge)
+DEFINE_ARRAY_METHODS_PUBLIC(Point, Point, point)
 
-// Main orchestration function: tries grid-based detection first, falls back to text column synthesis
+// Helper function for sorting floats
+static int cmp_floats(const void* a, const void* b)
+{
+    float fa = *(float*)a;
+    float fb = *(float*)b;
+    if (fa < fb)
+        return -1;
+    if (fa > fb)
+        return 1;
+    return 0;
+}
+
+// Helper: Detect if page has columnar (sidebar) layout
+// Returns true if text is naturally organized in columns without grid lines
+static bool has_columnar_layout(fz_context* ctx, fz_page* page)
+{
+    fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, NULL);
+    if (!textpage)
+        return false;
+
+    // Collect LINE starting x-positions (not characters) to find column splits
+    // This is more robust as it looks at where lines of text start
+    float* x_starts = malloc(500 * sizeof(float));
+    int start_count = 0;
+
+    float page_min_x = 1000000.0f, page_max_x = 0.0f;
+
+    for (fz_stext_block* block = textpage->first_block; block; block = block->next)
+    {
+        if (block->type != FZ_STEXT_BLOCK_TEXT)
+            continue;
+
+        for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
+        {
+            // Get the x-position of the first non-space character
+            for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
+            {
+                if (ch->c > 32 && ch->c < 127)
+                {
+                    fz_rect char_box = fz_rect_from_quad(ch->quad);
+                    if (start_count < 500)
+                    {
+                        x_starts[start_count++] = char_box.x0;
+                    }
+                    if (char_box.x0 < page_min_x)
+                        page_min_x = char_box.x0;
+                    if (char_box.x1 > page_max_x)
+                        page_max_x = char_box.x1;
+                    break; // Only first char per line
+                }
+            }
+        }
+    }
+
+    if (start_count < 5 || page_max_x <= page_min_x)
+    {
+        free(x_starts);
+        fz_drop_stext_page(ctx, textpage);
+        return false;
+    }
+
+    // Sort line start positions
+    qsort(x_starts, start_count, sizeof(float), cmp_floats);
+
+    float page_width = page_max_x - page_min_x;
+    float min_gap_for_column = page_width * 0.1f; // At least 10% of page width
+    if (min_gap_for_column < 30.0f)
+        min_gap_for_column = 30.0f;
+
+    // Look for significant gap in line start positions
+    float max_gap = 0;
+    float gap_at_x = 0;
+    for (int i = 1; i < start_count; i++)
+    {
+        float gap = x_starts[i] - x_starts[i - 1];
+        if (gap > max_gap)
+        {
+            max_gap = gap;
+            gap_at_x = (x_starts[i] + x_starts[i - 1]) / 2.0f;
+        }
+    }
+
+    fprintf(stderr, "Page columnar check: %d line starts, max_gap=%.1f, threshold=%.1f\n", start_count, max_gap,
+            min_gap_for_column);
+
+    free(x_starts);
+    fz_drop_stext_page(ctx, textpage);
+
+    bool is_columnar = (max_gap >= min_gap_for_column);
+
+    if (is_columnar)
+    {
+        fprintf(stderr, "Page: Detected columnar layout (gap=%.1f at x=%.1f)\n", max_gap, gap_at_x);
+    }
+
+    return is_columnar;
+}
+
+// Main orchestration function: ONLY detects actual grid-based tables
+// Two-column layouts are NOT tables and should not be treated as such
+// Helper to check if a table is likely a diagram text/label collection rather than a data table
+static bool is_likely_diagram_table(Table* table)
+{
+    int total_chars = 0;
+    int non_empty_cells = 0;
+    int single_word_cells = 0;
+
+    for (int r = 0; r < table->count; r++)
+    {
+        for (int c = 0; c < table->rows[r].count; c++)
+        {
+            char* text = table->rows[r].cells[c].text;
+            if (text && text[0])
+            {
+                size_t len = strlen(text);
+                total_chars += len;
+                non_empty_cells++;
+
+                // Check for single short words (typical in diagrams)
+                if (len < 10 && !strchr(text, ' '))
+                    single_word_cells++;
+            }
+        }
+    }
+
+    // Heuristic 1: Very sparse content
+    if (non_empty_cells == 0)
+        return true;
+
+    // Heuristic 2: Average cell length is very short (labels)
+    float avg_chars = (float)total_chars / non_empty_cells;
+    if (avg_chars < 8.0f)
+        return true;
+
+    // Heuristic 3: High percentage of single-word cells
+    if (non_empty_cells > 4 && (float)single_word_cells / non_empty_cells > 0.6f)
+        return true;
+
+    return false;
+}
+
+// Function to validate table against word boundaries
+static bool is_table_valid_against_words(Table* table, WordRectArray* words)
+{
+    if (!words || words->count == 0)
+        return true;
+
+    int bad_row_boundaries = 0;
+    int total_boundaries = 0;
+
+    // Check row boundaries
+    for (int r = 0; r < table->count; r++)
+    {
+        fz_rect row_rect = table->rows[r].bbox;
+
+        // Check top boundary (only for first row or significant gaps)
+        if (r == 0)
+        {
+            if (intersects_words_h(row_rect.y0, table->bbox, words))
+                bad_row_boundaries++;
+            total_boundaries++;
+        }
+
+        // Check bottom boundary
+        if (intersects_words_h(row_rect.y1, table->bbox, words))
+            bad_row_boundaries++;
+        total_boundaries++;
+    }
+
+    if (total_boundaries == 0)
+        return true;
+
+    // Reject if more than 20% of boundaries cut through words
+    return ((float)bad_row_boundaries / total_boundaries) <= 0.2f;
+}
+
+// Main orchestration function: ONLY detects actual grid-based tables
+// Two-column layouts are NOT tables and should not be treated as such
 TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_number, BlockArray* blocks)
 {
     (void)blocks;
 
     fz_page* page = NULL;
+    fz_stext_page* textpage = NULL;
     CaptureDevice* capture_dev = NULL;
     TableArray* tables = NULL;
     SpatialHash hash;
@@ -31,7 +210,9 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
     fz_try(ctx)
     {
         page = fz_load_page(ctx, doc, page_number);
+        textpage = fz_new_stext_page_from_page(ctx, page, NULL);
 
+        // Detect grid lines for real table structure
         capture_dev = (CaptureDevice*)new_capture_device(ctx);
         fz_run_page(ctx, page, (fz_device*)capture_dev, fz_identity, NULL);
         fz_close_device(ctx, (fz_device*)capture_dev);
@@ -59,69 +240,101 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
         merge_edges(&h_edges, SNAP_TOLERANCE, JOIN_TOLERANCE);
         merge_edges(&v_edges, SNAP_TOLERANCE, JOIN_TOLERANCE);
 
-        find_intersections(&v_edges, &h_edges, &hash);
+        fprintf(stderr, "Page %d: Detected %d h_edges, %d v_edges\n", page_number + 1, h_edges.count, v_edges.count);
 
-        PointArray intersections;
-        init_point_array(&intersections);
-        collect_points_from_hash(&hash, &intersections);
-        if (intersections.count > 0)
+        // Only try grid detection if we have enough edges for a real table
+        bool has_grid = (h_edges.count >= 3 && v_edges.count >= 3);
+
+        if (has_grid)
         {
-            qsort(intersections.items, intersections.count, sizeof(Point), compare_points);
+            find_intersections(&v_edges, &h_edges, &hash);
+
+            PointArray intersections;
+            init_point_array(&intersections);
+            collect_points_from_hash(&hash, &intersections);
+            if (intersections.count > 0)
+            {
+                qsort(intersections.items, intersections.count, sizeof(Point), compare_points);
+            }
+
+            CellArray cells;
+            init_cell_array(&cells);
+            find_cells(&intersections, &hash, &cells);
+
+            free_point_array(&intersections);
+
+            tables = group_cells_into_tables(&cells);
+            free_cell_array(&cells);
+
+            fz_rect page_rect = fz_bound_page(ctx, page);
+            bool tables_valid = validate_tables(tables, page_rect);
+
+            // Phase 1: Word-cutting validation
+            if (tables_valid && tables && tables->count > 0)
+            {
+                WordRectArray words;
+                init_word_rect_array(&words);
+                extract_word_rects(ctx, textpage, page_rect, &words);
+
+                // Filter invalid tables
+                int valid_count = 0;
+                for (int t = 0; t < tables->count; t++)
+                {
+                    if (is_table_valid_against_words(&tables->tables[t], &words))
+                    {
+                        if (t != valid_count)
+                        {
+                            tables->tables[valid_count] = tables->tables[t];
+                        }
+                        valid_count++;
+                    }
+                    else
+                    {
+                        // Free rejected table
+                        fprintf(stderr, "Page %d: Rejecting table %d (cuts through text words)\n", page_number + 1, t);
+                        Table* tb = &tables->tables[t];
+                        for (int r = 0; r < tb->count; r++)
+                            free(tb->rows[r].cells);
+                        free(tb->rows);
+                    }
+                }
+                tables->count = valid_count;
+                free_word_rect_array(&words);
+
+                if (tables->count == 0 && tables->tables)
+                {
+                    free(tables->tables);
+                    free(tables);
+                    tables = NULL;
+                    tables_valid = false;
+                }
+            }
+
+            fprintf(stderr, "Page %d: Grid detection valid=%d\n", page_number + 1, tables_valid);
+
+            if (!tables_valid)
+            {
+                if (tables)
+                {
+                    free_table_array(tables);
+                    tables = NULL;
+                }
+            }
         }
 
-        CellArray cells;
-        init_cell_array(&cells);
-        find_cells(&intersections, &hash, &cells);
+        // NOTE: We no longer do "two-column table synthesis" because two-column
+        // document layouts (like resumes) are NOT tables. They're just layout.
+        // The text blocks should be read in proper reading order, not forced into tables.
 
         free_edge_array(&h_edges);
         free_edge_array(&v_edges);
-        free_point_array(&intersections);
-
-        tables = group_cells_into_tables(&cells);
-        free_cell_array(&cells);
-
-        fz_rect page_rect = fz_bound_page(ctx, page);
-        bool tables_valid = validate_tables(tables, page_rect);
-
-        // Step 5: Fallback to text column synthesis if grid detection failed
-        if (!tables_valid)
-        {
-            if (tables)
-            {
-                free_table_array(tables);
-                tables = NULL;
-            }
-
-            // Synthesize 2-column table from text layout
-            fz_stext_page* textpage = fz_new_stext_page_from_page(ctx, page, NULL);
-            if (textpage)
-            {
-                FontStats font_stats;
-                font_stats_reset(&font_stats);
-                for (fz_stext_block* block = textpage->first_block; block; block = block->next)
-                {
-                    if (block->type != FZ_STEXT_BLOCK_TEXT)
-                        continue;
-                    for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
-                    {
-                        for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
-                        {
-                            if (ch->c != 0)
-                                font_stats_add(&font_stats, ch->size);
-                        }
-                    }
-                }
-
-                PageMetrics metrics = compute_page_metrics(&font_stats);
-                tables = synthesize_text_table_two_col(ctx, textpage, &metrics);
-                fz_drop_stext_page(ctx, textpage);
-            }
-        }
     }
     fz_always(ctx)
     {
         if (capture_dev)
             fz_drop_device(ctx, (fz_device*)capture_dev);
+        if (textpage)
+            fz_drop_stext_page(ctx, textpage);
         if (page)
             fz_drop_page(ctx, page);
         free_spatial_hash(&hash);
@@ -255,6 +468,14 @@ void process_tables_for_page(fz_context* ctx, fz_stext_page* textpage, TableArra
         if (!has_content)
         {
             // Skip this table - it's empty
+            continue;
+        }
+
+        // Phase 2: Content Validation
+        // Reject tables that look like diagrams (short labels, sparse content)
+        if (is_likely_diagram_table(table))
+        {
+            fprintf(stderr, "Page %d: Rejecting table (looks like diagram/labels)\n", page_number + 1);
             continue;
         }
 

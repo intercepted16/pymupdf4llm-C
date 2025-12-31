@@ -30,15 +30,7 @@ void init_spatial_hash(SpatialHash* hash)
     hash->pool_size = 0;
 }
 
-static void add_to_point_array(PointArray* arr, Point p)
-{
-    if (arr->count >= arr->capacity)
-    {
-        arr->capacity = arr->capacity == 0 ? 16 : arr->capacity * 2;
-        arr->items = realloc(arr->items, arr->capacity * sizeof(Point));
-    }
-    arr->items[arr->count++] = p;
-}
+// PointArray methods are now provided via table.h and implemented in table_core.c
 
 void add_to_spatial_hash(SpatialHash* hash, Point p)
 {

@@ -185,29 +185,77 @@ bool starts_with_numeric_heading(const char* text)
     return false;
 }
 
+bool is_bullet_rune(int rune)
+{
+    return (rune == '-' || rune == '*' || rune == 'o' || rune == '+' || rune == '>' || rune == 0x2022 || // •
+            rune == 0x2023 ||                                                                            // ‣
+            rune == 0x2043 ||                                                                            // ⁃
+            rune == 0x25AA ||                                                                            // ▪
+            rune == 0x25AB ||                                                                            // ▫
+            rune == 0x25B6 ||                                                                            // ▶
+            rune == 0x25C6 ||                                                                            // ◆
+            rune == 0x25CB ||                                                                            // ○
+            rune == 0x25CF ||                                                                            // ●
+            rune == 0x25E6 ||                                                                            // ◦
+            rune == 0x00B7 || // · (Middle dot)
+            rune == 0x2027 || // ‧ (Hyphenation point)
+            rune == 0xF0B7 || //  (Wingdings bullet)
+            rune == 0xF076 || // ❖ (Wingdings diamond)
+            rune == 0xF0B6 || // bullets identified by user
+            rune == 0xF0D8 || // Wingdings arrow
+            rune == 0xF0D7 || // Wingdings arrow
+            rune == 0xF0A3 || // Wingdings check
+            rune == 0x2713 || // ✓
+            rune == 0x2714);  // ✔
+}
+
 bool starts_with_bullet(const char* text)
 {
     if (!text)
         return false;
-    while (*text == ' ')
+
+    // Skip leading horizontal whitespace
+    while (*text == ' ' || *text == '\t')
         text++;
-    if (*text == '-' && text[1] == ' ')
-        return true;
-    if (*text == '*' && text[1] == ' ')
-        return true;
-    if ((unsigned char)text[0] == 0xE2 && (unsigned char)text[1] == 0x80 && (unsigned char)text[2] == 0xA2 &&
-        text[3] == ' ')
+
+    if (!*text)
+        return false;
+
+    // Multi-byte markers (Unicode)
+    int rune;
+    int len = fz_chartorune(&rune, text);
+
+    if (is_bullet_rune(rune))
     {
-        return true;
-    }
-    if (isdigit((unsigned char)*text))
-    {
-        const char* p = text;
-        while (isdigit((unsigned char)*p))
-            p++;
-        if ((*p == '.' || *p == ')') && p[1] == ' ')
+        // Require a space or similar boundary after a bullet
+        if (text[len] == ' ' || text[len] == '\t' || text[len] == '\0' || text[len] == '\n')
             return true;
     }
+
+    // Numbered list detection: "1. ", "1) ", " (1) "
+    const char* p = text;
+
+    // Handle leading parenthesis if present: "(1) "
+    if (*p == '(')
+        p++;
+
+    if (isdigit((unsigned char)*p))
+    {
+        while (isdigit((unsigned char)*p))
+            p++;
+
+        // Match "1. ", "1) "
+        if ((*p == '.' || *p == ')') && (p[1] == ' ' || p[1] == '\t' || p[1] == '\n' || p[1] == '\0'))
+            return true;
+    }
+
+    // Lowercase alpha list: "a. ", "b. "
+    if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z'))
+    {
+        if ((p[1] == '.' || p[1] == ')') && (p[2] == ' ' || p[2] == '\t' || p[2] == '\n' || p[2] == '\0'))
+            return true;
+    }
+
     return false;
 }
 
@@ -358,9 +406,16 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
             for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
             {
                 fz_rect char_box = fz_rect_from_quad(ch->quad);
-                if (char_box.x0 < rect.x0 || char_box.x1 > rect.x1)
+
+                // Use center point of character for containment check (more lenient)
+                float char_center_x = (char_box.x0 + char_box.x1) / 2.0f;
+                float char_center_y = (char_box.y0 + char_box.y1) / 2.0f;
+
+                // Check if character center is within rect (with small margin)
+                float margin = 2.0f;
+                if (char_center_x < rect.x0 - margin || char_center_x > rect.x1 + margin)
                     continue;
-                if (char_box.y0 < rect.y0 || char_box.y1 > rect.y1)
+                if (char_center_y < rect.y0 - margin || char_center_y > rect.y1 + margin)
                     continue;
                 if (ch->c == 0 || ch->c == 0xFEFF)
                     continue; // Skip null and BOM

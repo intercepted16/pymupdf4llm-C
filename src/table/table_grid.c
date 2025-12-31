@@ -23,10 +23,185 @@ void free_cell_array(CellArray* arr)
     arr->capacity = 0;
 }
 
+// Word-cutting validation: Initialize word rect array
+void init_word_rect_array(WordRectArray* arr)
+{
+    arr->items = NULL;
+    arr->count = 0;
+    arr->capacity = 0;
+}
+
+// Word-cutting validation: Free word rect array
+void free_word_rect_array(WordRectArray* arr)
+{
+    free(arr->items);
+    arr->items = NULL;
+    arr->count = 0;
+    arr->capacity = 0;
+}
+
+// Word-cutting validation: Extract word bboxes from textpage within bounds
+void extract_word_rects(fz_context* ctx, fz_stext_page* textpage, fz_rect bounds, WordRectArray* words)
+{
+    if (!ctx || !textpage || !words)
+        return;
+
+    // Initial capacity
+    words->capacity = 128;
+    words->items = malloc(words->capacity * sizeof(WordRect));
+    words->count = 0;
+
+    if (!words->items)
+        return;
+
+    for (fz_stext_block* block = textpage->first_block; block; block = block->next)
+    {
+        if (block->type != FZ_STEXT_BLOCK_TEXT)
+            continue;
+
+        // Skip blocks outside bounds
+        if (block->bbox.x1 < bounds.x0 || block->bbox.x0 > bounds.x1 || block->bbox.y1 < bounds.y0 ||
+            block->bbox.y0 > bounds.y1)
+            continue;
+
+        for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
+        {
+            // Skip lines outside bounds
+            if (line->bbox.y1 < bounds.y0 || line->bbox.y0 > bounds.y1)
+                continue;
+
+            // Build words from characters
+            fz_rect word_bbox = fz_empty_rect;
+            float prev_x1 = -1000.0f;
+            bool in_word = false;
+
+            for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
+            {
+                fz_rect char_bbox = fz_rect_from_quad(ch->quad);
+
+                // Skip whitespace
+                if (ch->c == ' ' || ch->c == '\t' || ch->c == '\n' || ch->c == '\r')
+                {
+                    // End current word if any
+                    if (in_word && !fz_is_empty_rect(word_bbox))
+                    {
+                        if (words->count >= words->capacity)
+                        {
+                            words->capacity *= 2;
+                            WordRect* new_items = realloc(words->items, words->capacity * sizeof(WordRect));
+                            if (!new_items)
+                                return;
+                            words->items = new_items;
+                        }
+                        words->items[words->count++].bbox = word_bbox;
+                        word_bbox = fz_empty_rect;
+                        in_word = false;
+                    }
+                    prev_x1 = -1000.0f;
+                    continue;
+                }
+
+                // Check for word break (large gap)
+                float gap = char_bbox.x0 - prev_x1;
+                float tolerance = ch->size * 0.5f;
+                if (tolerance < 3.0f)
+                    tolerance = 3.0f;
+
+                if (in_word && gap > tolerance)
+                {
+                    // End current word
+                    if (!fz_is_empty_rect(word_bbox))
+                    {
+                        if (words->count >= words->capacity)
+                        {
+                            words->capacity *= 2;
+                            WordRect* new_items = realloc(words->items, words->capacity * sizeof(WordRect));
+                            if (!new_items)
+                                return;
+                            words->items = new_items;
+                        }
+                        words->items[words->count++].bbox = word_bbox;
+                    }
+                    word_bbox = char_bbox;
+                }
+                else
+                {
+                    // Extend current word
+                    if (fz_is_empty_rect(word_bbox))
+                        word_bbox = char_bbox;
+                    else
+                        word_bbox = fz_union_rect(word_bbox, char_bbox);
+                }
+
+                in_word = true;
+                prev_x1 = char_bbox.x1;
+            }
+
+            // End final word in line
+            if (in_word && !fz_is_empty_rect(word_bbox))
+            {
+                if (words->count >= words->capacity)
+                {
+                    words->capacity *= 2;
+                    WordRect* new_items = realloc(words->items, words->capacity * sizeof(WordRect));
+                    if (!new_items)
+                        return;
+                    words->items = new_items;
+                }
+                words->items[words->count++].bbox = word_bbox;
+            }
+        }
+    }
+}
+
+// Word-cutting validation: Check if horizontal line y cuts through any word
+bool intersects_words_h(float y, fz_rect table_bbox, const WordRectArray* words)
+{
+    if (!words || words->count == 0)
+        return false;
+
+    for (int i = 0; i < words->count; i++)
+    {
+        fz_rect wr = words->items[i].bbox;
+
+        // Word must be within table bounds horizontally
+        if (wr.x1 < table_bbox.x0 || wr.x0 > table_bbox.x1)
+            continue;
+
+        // Check if line cuts through word vertically (with small tolerance)
+        float margin = 1.0f;
+        if (wr.y0 + margin < y && y < wr.y1 - margin)
+            return true;
+    }
+    return false;
+}
+
+// Word-cutting validation: Check if vertical line x cuts through any word
+bool intersects_words_v(float x, fz_rect table_bbox, const WordRectArray* words)
+{
+    if (!words || words->count == 0)
+        return false;
+
+    for (int i = 0; i < words->count; i++)
+    {
+        fz_rect wr = words->items[i].bbox;
+
+        // Word must be within table bounds vertically
+        if (wr.y1 < table_bbox.y0 || wr.y0 > table_bbox.y1)
+            continue;
+
+        // Check if line cuts through word horizontally (with small tolerance)
+        float margin = 1.0f;
+        if (wr.x0 + margin < x && x < wr.x1 - margin)
+            return true;
+    }
+    return false;
+}
+
 int compare_edges_v(const void* a, const void* b)
 {
-    const Edge *ea = (Edge*)a;
-    const Edge *eb = (Edge*)b;
+    const Edge* ea = (Edge*)a;
+    const Edge* eb = (Edge*)b;
     const int cmp = CMP_FLOAT(ea->x0, eb->x0);
     return cmp ? cmp : CMP_FLOAT(ea->y0, eb->y0);
 }
@@ -47,8 +222,8 @@ int compare_points(const void* a, const void* b)
 
 static int compare_rects_lexicographically(const void* a, const void* b)
 {
-    const fz_rect *ra = (fz_rect*)a;
-    const fz_rect *rb = (fz_rect*)b;
+    const fz_rect* ra = (fz_rect*)a;
+    const fz_rect* rb = (fz_rect*)b;
     const int cmp = CMP_FLOAT(ra->y0, rb->y0);
     return cmp ? cmp : CMP_FLOAT(ra->x0, rb->x0);
 }
@@ -186,68 +361,111 @@ void find_intersections(const EdgeArray* v_edges, const EdgeArray* h_edges, Spat
     }
 }
 
-// Optimized: Use spatial hash for O(1) point lookup instead of O(n) scan
+// FIX: Handle incomplete grids - find cells even without perfect 4 corners
 void find_cells(const PointArray* intersections, SpatialHash* hash, CellArray* cells)
 {
-    // Preallocate cells array
-    cells->capacity = intersections->count;
+    if (intersections->count < 4)
+        return;
+
+    // Sort points for structured searching
+    qsort(intersections->items, intersections->count, sizeof(Point), compare_points);
+
+    cells->capacity = intersections->count * intersections->count;
     cells->items = malloc(cells->capacity * sizeof(fz_rect));
     cells->count = 0;
+
+    // Build index of points by Y coordinate for faster lookup
+    int* y_indices = malloc(intersections->count * sizeof(int));
+    for (int i = 0; i < intersections->count; i++)
+    {
+        y_indices[i] = i;
+    }
+
+    const double EPSILON = 1e-6;
 
     for (int i = 0; i < intersections->count; ++i)
     {
         Point p1 = intersections->items[i];
-        Point p_right = {-1, -1};
-        Point down = {-1, -1};
 
-        // Since points are sorted, we can optimize the search
-        // Find next point to the right (same y, larger x)
-        for (int j = i + 1; j < intersections->count && intersections->items[j].y == p1.y; ++j)
-        {
-                p_right = intersections->items[j];
-                break; // First one found is the closest
-        }
-
-        // Find next point below (same x, larger y)
+        // Find all points with same Y (on same horizontal line)
         for (int j = i + 1; j < intersections->count; ++j)
         {
-            if (intersections->items[j].x == p1.x)
-            {
-                    down = intersections->items[j];
-                    break; // First one found is the closest
-            }
-        }
+            if (fabs(intersections->items[j].y - p1.y) > EPSILON)
+                break; // Sorted by Y, stop searching
 
-        if (p_right.x != -1 && down.y != -1)
-        {
-            // Use spatial hash for O(1) lookup of bottom-right corner
-            if (find_in_spatial_hash(hash, p_right.x, down.y))
-            {
-                const fz_rect cell_bbox = {p1.x, p1.y, p_right.x, down.y};
-                double width = cell_bbox.x1 - cell_bbox.x0;
-                double height = cell_bbox.y1 - cell_bbox.y0;
+            Point p2 = intersections->items[j];
+            if (p2.x <= p1.x)
+                continue; // Need p2 to be to the right
 
-                if (width > 5.0 && height > 0)
+            // Now find points below p1 and p2
+            for (int k = j + 1; k < intersections->count; ++k)
+            {
+                Point p3 = intersections->items[k];
+                if (p3.y <= p1.y + EPSILON)
+                    continue; // Need p3 below p1
+
+                if (fabs(p3.x - p1.x) < EPSILON)
                 {
-                    cells->items[cells->count++] = cell_bbox;
+                    // Found left-bottom corner, now look for right-bottom
+                    for (int m = k + 1; m < intersections->count; ++m)
+                    {
+                        Point p4 = intersections->items[m];
+
+                        // p4 should be at approximately (p2.x, p3.y)
+                        if (fabs(p4.x - p2.x) < EPSILON && fabs(p4.y - p3.y) < EPSILON)
+                        {
+                            // Perfect 4-corner match
+                            fz_rect cell_bbox = {p1.x, p1.y, p2.x, p3.y};
+                            double width = cell_bbox.x1 - cell_bbox.x0;
+                            double height = cell_bbox.y1 - cell_bbox.y0;
+
+                            if (width > 2.0 && height > 0.5)
+                            {
+                                cells->items[cells->count++] = cell_bbox;
+                            }
+                            goto next_p2;
+                        }
+                    }
+
+                    // FALLBACK: Accept cell even if p4 doesn't exist exactly
+                    // This handles merged cells and missing borders
+                    fz_rect cell_bbox = {p1.x, p1.y, p2.x, p3.y};
+                    double width = cell_bbox.x1 - cell_bbox.x0;
+                    double height = cell_bbox.y1 - cell_bbox.y0;
+
+                    if (width > 2.0 && height > 0.5)
+                    {
+                        cells->items[cells->count++] = cell_bbox;
+                    }
+                    goto next_p2;
                 }
             }
+
+        next_p2:;
         }
     }
+
+    free(y_indices);
 }
 
 // Helper to initialize a new table in the array
 static Table* add_new_table(TableArray* tables)
 {
     const int idx = tables->count;
-    Table *new_tables = realloc(tables->tables, (tables->count + 1) * sizeof(Table));
-    if (!new_tables) return NULL;
-    tables->tables = new_tables; tables->count++;
+    Table* new_tables = realloc(tables->tables, (tables->count + 1) * sizeof(Table));
+    if (!new_tables)
+        return NULL;
+    tables->tables = new_tables;
+    tables->count++;
     Table* table = &tables->tables[idx];
     table->bbox = fz_empty_rect;
     table->count = 0;
     table->rows = malloc(16 * sizeof(TableRow));
-    if (!table->rows) { tables->count--; return NULL; }
+    if (!table->rows)
+    {
+        tables->count--;
+        return NULL;
+    }
     return table;
 }
 
@@ -537,7 +755,9 @@ bool validate_tables(TableArray* tables, fz_rect page_rect)
         Table* table = &tables->tables[t];
         if (!is_valid_rect(table->bbox, page_rect, 50))
             continue;
-        int expected_cols = -1, valid_rows = 0;
+
+        // First, count structural metrics to assess table quality
+        int expected_cols = -1, valid_rows = 0, missing_cell_rows = 0;
         for (int r = 0; r < table->count; r++)
         {
             if (!is_valid_rect(table->rows[r].bbox, page_rect, 10))
@@ -547,9 +767,38 @@ bool validate_tables(TableArray* tables, fz_rect page_rect)
             if (expected_cols < 0)
                 expected_cols = table->rows[r].count;
             else if (table->rows[r].count != expected_cols)
-                return false;
+            {
+                if (table->rows[r].count < expected_cols)
+                    missing_cell_rows++;
+            }
             valid_rows++;
         }
+
+        // GATE 1: Reject tables that are too large - they're layout, not data tables
+        // Real data tables rarely cover >60% of page height
+        float page_height = page_rect.y1 - page_rect.y0;
+        float page_width = page_rect.x1 - page_rect.x0;
+        float table_height = table->bbox.y1 - table->bbox.y0;
+        float table_width = table->bbox.x1 - table->bbox.x0;
+        float height_ratio = table_height / page_height;
+        float width_ratio = table_width / page_width;
+
+        // Reject page-spanning tables - they're almost always layout, not data
+        if (height_ratio > 0.6f || width_ratio > 0.9f)
+        {
+            fprintf(stderr, "    Validation: Rejecting table (too large: %.1f%% height, %.1f%% width)\n",
+                    height_ratio * 100, width_ratio * 100);
+            continue;
+        }
+
+        // GATE 2: Reject if too many rows have missing cells (inconsistent structure)
+        if (valid_rows > 0 && missing_cell_rows > valid_rows * 0.4f)
+        {
+            fprintf(stderr, "    Validation: Rejecting table (inconsistent rows: %d/%d have missing cells)\n",
+                    missing_cell_rows, valid_rows);
+            continue;
+        }
+
         if (valid_rows >= 2 && expected_cols >= 2)
             return true;
     }

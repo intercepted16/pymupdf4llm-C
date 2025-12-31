@@ -177,12 +177,20 @@ int compare_block_position(const void* a, const void* b)
     const BlockInfo* ia = (const BlockInfo*)a;
     const BlockInfo* ib = (const BlockInfo*)b;
 
+    // Primary sort key: column index
+    if (ia->column_index != ib->column_index)
+    {
+        return ia->column_index - ib->column_index;
+    }
+
+    // Secondary sort key: vertical position
     float dy = ia->bbox.y0 - ib->bbox.y0;
     if (fabsf(dy) > 1e-3f)
     {
         return (dy < 0.0f) ? -1 : 1;
     }
 
+    // Tertiary sort key: horizontal position
     float dx = ia->bbox.x0 - ib->bbox.x0;
     if (fabsf(dx) > 1e-3f)
     {

@@ -267,14 +267,32 @@ extern EXPORT int pdf_to_json(const char* pdf_path, const char* output_file)
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || argc > 3)
+    if (argc < 2)
     {
-        fprintf(stderr, "Usage: %s <input.pdf> [output_dir]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <input.pdf> [output_dir] [start_page] [end_page]\n", argv[0]);
         return 1;
     }
 
     const char* pdf_path = argv[1];
     const char* output_dir = (argc >= 3) ? argv[2] : ".";
+
+    if (argc >= 5)
+    {
+        int start = atoi(argv[3]);
+        int end = atoi(argv[4]);
+
+        // Adjust 1-based to 0-based for start, end is exclusive in loop (i < end)
+        // But user likely passes inclusive range like "50 50".
+        // Let's assume input is 1-based inclusive range.
+
+        int start_idx = start - 1;
+        int end_idx = end; // i < end_idx -> stops after page 'end'
+
+        if (ensure_directory(output_dir) != 0)
+            return 1;
+
+        return extract_pages_range(pdf_path, output_dir, start_idx, end_idx);
+    }
 
     int rc = extract_document_multiprocess(pdf_path, output_dir);
     return (rc == 0) ? 0 : 1;

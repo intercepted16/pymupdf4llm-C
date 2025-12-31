@@ -36,5 +36,11 @@ int compare_points(const void* a, const void* b);
 void init_cell_array(CellArray* arr);
 void free_cell_array(CellArray* arr);
 
-#endif // TABLE_GRID_H
+// Word-cutting validation
+void init_word_rect_array(WordRectArray* arr);
+void free_word_rect_array(WordRectArray* arr);
+void extract_word_rects(fz_context* ctx, fz_stext_page* textpage, fz_rect bounds, WordRectArray* words);
+bool intersects_words_h(float y, fz_rect table_bbox, const WordRectArray* words);
+bool intersects_words_v(float x, fz_rect table_bbox, const WordRectArray* words);
 
+#endif // TABLE_GRID_H

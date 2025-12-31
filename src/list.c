@@ -6,6 +6,14 @@
 #include <string.h>
 #include <stdbool.h>
 
+// Normalize private use bullets to standard
+int normalize_private_list_unicode(int rune)
+{
+    if (rune == 0xF0B7 || rune == 0xF076 || rune == 0xF0B6)
+        return 0x2022; // Convert to standard bullet •
+    return rune;
+}
+
 /**
  * @brief Clean list item text by removing markers and extracting metadata.
  *
@@ -49,14 +57,18 @@ static char* clean_list_item_text(const char* text, ListType* out_type, char** o
         while (*p && *p != ' ' && *p != '\t')
             p++;
     }
-    // Check for bullet markers: -, •, o, *, ·, etc.
-    else if (*p == '-' || *p == '*' || *p == 'o' || (unsigned char)*p == 0xE2 /* UTF-8 bullet */)
+    // Check for bullet markers
+    int rune;
+    int rlen = fz_chartorune(&rune, p);
+    rune = normalize_private_list_unicode(rune);
+    if (is_bullet_rune(rune))
     {
-        type = LIST_BULLETED;
-        p++;
-        // Skip the rest of multi-byte UTF-8 bullets
-        while (*p && ((unsigned char)*p & 0xC0) == 0x80)
-            p++;
+        // Only treat as marker if followed by space or end of string
+        if (p[rlen] == ' ' || p[rlen] == '\t' || p[rlen] == '\0' || p[rlen] == '\n')
+        {
+            type = LIST_BULLETED;
+            p += rlen;
+        }
     }
 
     // Skip whitespace after marker

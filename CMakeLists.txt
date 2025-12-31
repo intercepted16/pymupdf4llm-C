@@ -60,7 +60,24 @@ if(NOT MUPDF_LIBS)
 endif()
 
 # --- Source files ---
-file(GLOB_RECURSE APP_SOURCES "src/*.c")
+set(APP_SOURCES
+    src/block_info.c
+    src/buffer.c
+    src/column_detector.c
+    src/font_metrics.c
+    src/list.c
+    src/page_extractor.c
+    src/serialize.c
+    src/spatial_hash.c
+    src/text_utils.c
+    src/to_md.c
+    src/utils.c
+    src/table/table_capture.c
+    src/table/table_core.c
+    src/table/table_grid.c
+    src/table/table_horizontal.c
+    src/table/table_utils.c
+)
 set(LIBS m)  # Math library
 
 # --- Shared library for Python ---

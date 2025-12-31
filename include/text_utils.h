@@ -54,6 +54,14 @@ bool starts_with_numeric_heading(const char* text);
 bool starts_with_bullet(const char* text);
 
 /**
+ * @brief Check if a Unicode rune is a known bullet marker.
+ *
+ * @param rune Unicode codepoint.
+ * @return true if the rune is a common bullet marker.
+ */
+bool is_bullet_rune(int rune);
+
+/**
  * @brief Identify numbered list prefixes (1., 2., a., etc.).
  *
  * @param text Input string.
