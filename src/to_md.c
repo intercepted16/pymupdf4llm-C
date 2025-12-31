@@ -1,6 +1,5 @@
 #include "platform_compat.h"
 #include "page_extractor.h"
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,60 +9,7 @@
 #include <sys/wait.h>
 #include <dirent.h>
 #include <time.h>
-
-/* Ensure the output directory exists */
-static int ensure_directory(const char* dir)
-{
-    if (!dir || strlen(dir) == 0)
-        return 0;
-    struct stat st;
-    if (stat(dir, &st) == 0)
-    {
-        if (S_ISDIR(st.st_mode))
-            return 0;
-        fprintf(stderr, "Error: %s exists and is not a directory\n", dir);
-        return -1;
-    }
-#if defined(_WIN32)
-    if (_mkdir(dir) != 0)
-#else
-    if (mkdir(dir, 0775) != 0 && errno != EEXIST)
-#endif
-    {
-        fprintf(stderr, "Error: cannot create directory %s (%s)\n", dir, strerror(errno));
-        return -1;
-    }
-    return 0;
-}
-
-/* Recursively remove a directory and its contents */
-static int remove_directory(const char* dir)
-{
-    DIR* d = opendir(dir);
-    if (!d)
-        return -1;
-
-    struct dirent* entry;
-    while ((entry = readdir(d)) != NULL)
-    {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        char path[512];
-        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        struct stat st;
-        if (stat(path, &st) == 0)
-        {
-            if (S_ISDIR(st.st_mode))
-                remove_directory(path);
-            else
-                unlink(path);
-        }
-    }
-    closedir(d);
-    rmdir(dir);
-    return 0;
-}
+#include "utils.h"
 
 /* Merge all page_*.json files into a single JSON array */
 static int merge_json_files(const char* temp_dir, const char* output_file)
@@ -106,7 +52,6 @@ static int merge_json_files(const char* temp_dir, const char* output_file)
             continue;
         }
 
-        /* Extract page number from filename (page_XXX.json) */
         int page_num = 0;
         if (sscanf(entry->d_name, "page_%d.json", &page_num) != 1)
         {
@@ -207,7 +152,6 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
     if (ensure_directory(output_dir) != 0)
         return -1;
 
-    /* Determine number of CPU cores */
     int num_cores = get_num_cores();
 
     /* Open document once to get total page count */
@@ -244,12 +188,13 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
     int pages_per_proc = (page_count + num_cores - 1) / num_cores;
     pid_t* pids = malloc(num_cores * sizeof(pid_t));
 
-    // Initialize all pids to 0 (marks unused slots)
+    // mark unused slots
     for (int i = 0; i < num_cores; i++)
     {
         pids[i] = 0;
     }
 
+    // alloc. batch 4 each core
     for (int i = 0; i < num_cores; i++)
     {
         int start = i * pages_per_proc;
@@ -265,7 +210,6 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
         }
         if (pid == 0)
         {
-            /* Child process: extract its batch of pages */
             int rc = extract_pages_range(pdf_path, output_dir, start, end);
             exit(rc);
         }
@@ -293,6 +237,7 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
     return final_status;
 }
 
+// main public func; x.pdf -> y.json
 extern EXPORT int pdf_to_json(const char* pdf_path, const char* output_file)
 {
     if (!pdf_path || !output_file)
@@ -313,16 +258,13 @@ extern EXPORT int pdf_to_json(const char* pdf_path, const char* output_file)
         return -1;
     }
 
-    /* Merge JSON files into single output file */
     rc = merge_json_files(temp_dir, output_file);
 
-    /* Clean up temp directory */
     remove_directory(temp_dir);
 
     return rc;
 }
 
-#ifndef NOLIB_MAIN
 int main(int argc, char** argv)
 {
     if (argc < 2 || argc > 3)
@@ -337,4 +279,3 @@ int main(int argc, char** argv)
     int rc = extract_document_multiprocess(pdf_path, output_dir);
     return (rc == 0) ? 0 : 1;
 }
-#endif

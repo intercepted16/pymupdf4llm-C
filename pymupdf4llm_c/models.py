@@ -39,7 +39,7 @@ class Block:
     font_weight: str
     page_number: int
     length: int
-    
+
     # Optional fields for specific block types
     lines: Optional[int] = None
     row_count: Optional[int] = None

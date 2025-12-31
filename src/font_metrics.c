@@ -1,6 +1,8 @@
 #include "font_metrics.h"
+#include "text_utils.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <string.h>
 
 void font_stats_reset(FontStats* stats)
@@ -72,4 +74,67 @@ PageMetrics compute_page_metrics(const FontStats* stats)
     if (metrics.median_font_size <= 0.0f)
         metrics.median_font_size = metrics.body_font_size;
     return metrics;
+}
+
+void collect_font_stats(fz_context* ctx, fz_stext_page* textpage, FontStats* stats)
+{
+    (void)ctx; // Unused parameter
+    font_stats_reset(stats);
+    for (fz_stext_block* block = textpage->first_block; block; block = block->next)
+    {
+        if (block->type != FZ_STEXT_BLOCK_TEXT)
+            continue;
+        for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
+        {
+            for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
+            {
+                font_stats_add(stats, ch->size);
+            }
+        }
+    }
+}
+
+void compute_block_font_metrics(fz_context* ctx, fz_stext_block* block, BlockFontMetrics* metrics)
+{
+    if (!block || !metrics)
+        return;
+
+    // Initialize metrics
+    memset(metrics, 0, sizeof(BlockFontMetrics));
+
+    if (block->type != FZ_STEXT_BLOCK_TEXT)
+        return;
+
+    for (fz_stext_line* line = block->u.t.first_line; line; line = line->next)
+    {
+        for (fz_stext_char* ch = line->first_char; ch; ch = ch->next)
+        {
+            if (ch->c == 0)
+                continue;
+
+            metrics->total_chars++;
+            metrics->font_size_sum += ch->size;
+
+            // Detect text styling
+            bool is_bold = ch->font && fz_font_is_bold(ctx, ch->font);
+            bool is_italic = ch->font && fz_font_is_italic(ctx, ch->font);
+            bool is_mono = ch->font && fz_font_is_monospaced(ctx, ch->font);
+
+            // Check for superscript via position-based detection
+            fz_rect char_box = fz_rect_from_quad(ch->quad);
+            bool is_super = is_superscript_position(char_box.y0, line->bbox.y0, ch->size);
+
+            if (is_bold)
+                metrics->bold_chars++;
+            if (is_italic)
+                metrics->italic_chars++;
+            if (is_mono)
+                metrics->mono_chars++;
+            if (is_super)
+            {
+                metrics->superscript_chars++;
+                metrics->has_superscript = true;
+            }
+        }
+    }
 }

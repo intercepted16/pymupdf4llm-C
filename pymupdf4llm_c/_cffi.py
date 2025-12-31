@@ -50,7 +50,7 @@ def get_lib(ffi: FFI, path: Path | str) -> Lib:
             mupdf_libs = sorted(lib_dir.glob("libmupdf.so.*"), reverse=True)
             if not mupdf_libs:
                 mupdf_libs = list(lib_dir.glob("libmupdf.so"))
-            
+
             if mupdf_libs:
                 # Load libmupdf with RTLD_GLOBAL so it's available to libtomd.so
                 ctypes.CDLL(str(mupdf_libs[0]), mode=ctypes.RTLD_GLOBAL)

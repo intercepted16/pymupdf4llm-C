@@ -5,27 +5,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declaration of block_info_clear to avoid implicit declaration warning
 void block_info_clear(BlockInfo* info);
 
 const char* block_type_to_string(BlockType t)
 {
     switch (t)
     {
-    case BLOCK_PARAGRAPH:
-        return "text";
-    case BLOCK_HEADING:
-        return "heading";
-    case BLOCK_TABLE:
-        return "table";
-    case BLOCK_LIST:
-        return "list";
-    case BLOCK_FIGURE:
-        return "figure";
-    case BLOCK_CODE:
-        return "code";
-    case BLOCK_FOOTNOTE:
-        return "footnote";
+#define X(name, str)                                                                                                   \
+    case BLOCK_##name:                                                                                                 \
+        return str;
+        BLOCK_TYPES;
+#undef X
     default:
         return "unknown";
     }

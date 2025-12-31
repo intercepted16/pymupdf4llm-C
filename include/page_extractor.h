@@ -24,7 +24,7 @@ extern "C"
      * @return 0 on success, -1 when extraction fails.
      */
     int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, const char* output_dir,
-                            char* error_buffer, size_t error_buffer_size);
+                            const char* error_buffer, size_t error_buffer_size);
 
     /**
      * @brief Extract a single page from a document and return JSON text.

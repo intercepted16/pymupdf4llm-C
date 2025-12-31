@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <mupdf/fitz.h>
 
 /**
  * @brief Normalize whitespace and newline handling within a text block.
@@ -11,14 +12,6 @@
  * @return Newly allocated normalized string or NULL on allocation failure.
  */
 char* normalize_text(const char* input);
-
-/**
- * @brief Canonicalize leading bullet markers to "- " format.
- *
- * @param text Input text (may be NULL).
- * @return Newly allocated string with normalized bullets or NULL on failure.
- */
-char* normalize_bullets(const char* text);
 
 /**
  * @brief Determine whether a string ends with sentence punctuation.
@@ -116,12 +109,15 @@ bool is_superscript_position(float char_y0, float line_y0, float char_size);
 bool is_subscript_position(float char_y1, float line_y1, float char_size);
 
 /**
- * @brief Get the indentation level from leading whitespace.
+ * @brief Check if text has visible content (printable ASCII).
  *
  * @param text Input string.
- * @param base_indent Base indent width (typically from first list item).
- * @return Indentation level (0-based).
+ * @return true if text contains visible characters (ASCII 33-126).
  */
-int get_indent_level(const char* text, float base_indent);
+bool has_visible_content(const char* text);
+
+bool is_lone_page_number(const char* text);
+
+bool is_in_margin_area(fz_rect bbox, fz_rect page_bbox, float threshold_percent);
 
 #endif // TEXT_UTILS_H

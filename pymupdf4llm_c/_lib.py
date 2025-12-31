@@ -30,10 +30,10 @@ def _iter_search_directories(package_root: Path) -> Iterator[Path]:
     # Primary locations first: packaged library within the module itself.
     # This is where pip/uv install places it with all dependencies
     yield package_root / "lib"
-    
+
     # Known setuptools build directory pattern - this has dependencies too
     yield build_root / "lib" / _PACKAGE_NAME / "lib"
-    
+
     if build_root.exists():
         for child in build_root.iterdir():
             if child.is_dir() and child.name.startswith("lib"):
@@ -46,7 +46,7 @@ def _iter_search_directories(package_root: Path) -> Iterator[Path]:
     # These may not have all dependencies bundled
     yield build_root
     yield build_root / "lib"
-    
+
     if build_root.exists():
         for child in build_root.iterdir():
             if child.is_dir() and child.name.startswith("lib"):

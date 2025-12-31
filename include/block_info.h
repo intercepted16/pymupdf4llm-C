@@ -3,30 +3,26 @@
 
 #include "mupdf/fitz.h"
 #include <stddef.h>
+#include "list.h"
+
+#define BLOCK_TYPES \
+    X(PARAGRAPH, "text") \
+    X(HEADING, "heading") \
+    X(TABLE, "table") \
+    X(LIST, "list") \
+    X(FIGURE, "figure") \
+    X(CODE, "code") \
+    X(FOOTNOTE, "footnote") \
+    X(OTHER, "other")
 
 /**
  * @brief Content block classification emitted by the extractor.
  */
-typedef enum
-{
-    BLOCK_PARAGRAPH, /**< Flowing text block. */
-    BLOCK_HEADING,   /**< Heading or title. */
-    BLOCK_TABLE,     /**< Table structure. */
-    BLOCK_LIST,      /**< Bullet or numbered list. */
-    BLOCK_FIGURE,    /**< Non-textual figure or image. */
-    BLOCK_CODE,      /**< Code block (monospace text). */
-    BLOCK_FOOTNOTE,  /**< Footnote text. */
-    BLOCK_OTHER      /**< Fallback classification. */
+typedef enum {
+#define X(name, str) BLOCK_##name,
+    BLOCK_TYPES
+#undef X
 } BlockType;
-
-/**
- * @brief List type (bulleted vs numbered).
- */
-typedef enum
-{
-    LIST_BULLETED, /**< Bulleted list (-, *, •). */
-    LIST_NUMBERED  /**< Numbered list (1., 2., a., etc.). */
-} ListType;
 
 /**
  * @brief Text styling flags for a span.
@@ -69,22 +65,9 @@ typedef struct Link
  */
 typedef struct BlockInfo BlockInfo;
 
-/**
- * @brief Array of list items for nested list structures.
- */
-typedef struct
-{
-    char** items;    /**< Array of list item texts. */
-    int* indents;    /**< Indentation levels for each item. */
-    ListType* types; /**< Type of each list item (bulleted/numbered). */
-    char** prefixes; /**< Original prefix for numbered lists (1., a., etc.). */
-    int count;       /**< Number of items. */
-    int capacity;    /**< Allocated capacity. */
-} ListItems;
-
 struct BlockInfo
 {
-    char* text;               /**< UTF-8 normalized text (may be empty). */
+    char* text;               /**< UTF-8 normalized text (=may be empty). */
     size_t text_chars;        /**< Unicode scalar count for @ref text. */
     fz_rect bbox;             /**< Original MuPDF bounding box. */
     BlockType type;           /**< Final classification label. */
@@ -114,7 +97,7 @@ struct BlockInfo
 /**
  * @brief Dynamic array container for @ref BlockInfo entries.
  */
-typedef struct
+typedef struct BlockArray
 {
     BlockInfo* items; /**< Pointer to contiguous storage. */
     size_t count;     /**< Number of active entries. */
@@ -130,21 +113,21 @@ typedef struct
 const char* block_type_to_string(BlockType t);
 
 /**
- * @brief Initialise an empty @ref BlockArray instance.
+ * @brief Initialize an empty @ref BlockArray instance.
  *
- * @param arr Array to initialise.
+ * @param arr Array to initialize.
  */
 void block_array_init(BlockArray* arr);
 
 /**
  * @brief Release all memory held by a block array.
  *
- * @param arr Array to free (may be NULL).
+ * @param arr Array to free (=may be NULL).
  */
 void block_array_free(BlockArray* arr);
 
 /**
- * @brief Append a zero-initialised block to the array.
+ * @brief Append a zero-initialized block to the array.
  *
  * @param arr Target array.
  * @return Pointer to the newly appended block or NULL on allocation failure.

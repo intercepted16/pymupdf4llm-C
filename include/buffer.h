@@ -57,20 +57,29 @@ int buffer_append_char(Buffer* buf, char c);
 int buffer_append_format(Buffer* buf, const char* fmt, ...);
 
 /**
- * @brief Append a fixed number of bytes from a memory region.
- *
- * @param buf Target buffer.
- * @param data Source bytes (may be NULL if @p len is 0).
- * @param len Number of bytes to append.
- * @return 0 on success, -1 if resizing fails or inputs are invalid.
- */
-int buffer_append_n(Buffer* buf, const char* data, size_t len);
-
-/**
  * @brief Clear the buffer contents, resetting length to 0.
  *
  * @param buf Target buffer.
  */
 void buffer_clear(Buffer* buf);
+
+/**
+    * @brief append a NULL-terminated string to the buffer with proper escaping for JSON.
+    *
+    * @param buf Target buffer.
+    * @param src Source string to append (may be NULL).
+    * @return void.
+ */
+void buffer_sappend(Buffer* buf, const char* src);
+
+/**
+ * @brief Append a specified number of characters from a string to the buffer.
+ *
+ * @param buf Target buffer.
+ * @param text String to append from.
+ * @param n Number of characters to append.
+ * @return 0 on success, -1 if resizing fails or inputs are invalid.
+ */
+int buffer_append_n(Buffer* buf, const char* text, size_t n);
 
 #endif // BUFFER_H

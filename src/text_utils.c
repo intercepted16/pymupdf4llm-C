@@ -12,6 +12,20 @@
 
 #include <mupdf/fitz.h>
 
+bool has_visible_content(const char* text)
+{
+    if (!text)
+        return false;
+
+    for (const char* p = text; *p; p++)
+    {
+        unsigned char ch = (unsigned char)*p;
+        if (ch >= 33 && ch <= 126)
+            return true;
+    }
+    return false;
+}
+
 char* normalize_text(const char* input)
 {
     if (!input)
@@ -74,108 +88,6 @@ char* normalize_text(const char* input)
 
     out[write] = '\0';
     return out;
-}
-
-static size_t list_bullet_prefix_len(const char* line, size_t line_len)
-{
-    if (!line || line_len == 0)
-        return 0;
-
-    size_t idx = 0;
-    while (idx < line_len && (line[idx] == ' ' || line[idx] == '\t'))
-        idx++;
-
-    static const char* bullets[] = {"-", "•", "o", "*", "·", "�", "‣", "●", "–", NULL};
-
-    for (int i = 0; bullets[i]; ++i)
-    {
-        size_t blen = strlen(bullets[i]);
-        if (blen == 0 || blen > line_len - idx)
-            continue;
-        if (strncmp(line + idx, bullets[i], blen) == 0)
-        {
-            size_t pos = idx + blen;
-            while (pos < line_len && (line[pos] == ' ' || line[pos] == '\t'))
-                pos++;
-            return pos;
-        }
-    }
-
-    if (idx < line_len && isdigit((unsigned char)line[idx]))
-    {
-        size_t pos = idx;
-        while (pos < line_len && isdigit((unsigned char)line[pos]))
-            pos++;
-        if (pos < line_len && (line[pos] == '.' || line[pos] == ')' || line[pos] == '-'))
-        {
-            pos++;
-            while (pos < line_len && (line[pos] == ' ' || line[pos] == '\t'))
-                pos++;
-            return pos;
-        }
-    }
-    else if (idx + 1 < line_len && isalpha((unsigned char)line[idx]) && (line[idx + 1] == '.' || line[idx + 1] == ')'))
-    {
-        size_t pos = idx + 2;
-        while (pos < line_len && (line[pos] == ' ' || line[pos] == '\t'))
-            pos++;
-        return pos;
-    }
-
-    return 0;
-}
-
-char* normalize_bullets(const char* text)
-{
-    if (!text)
-        return NULL;
-
-    size_t text_len = strlen(text);
-    Buffer* out = buffer_create(text_len + 16);
-    if (!out)
-        return NULL;
-
-    const char* cursor = text;
-    bool input_had_trailing_newline = text_len > 0 && text[text_len - 1] == '\n';
-    bool changed = false;
-
-    while (*cursor)
-    {
-        const char* line_end = strchr(cursor, '\n');
-        size_t line_len = line_end ? (size_t)(line_end - cursor) : strlen(cursor);
-
-        size_t skip = list_bullet_prefix_len(cursor, line_len);
-        if (skip > 0)
-        {
-            buffer_append(out, "- ");
-            buffer_append_n(out, cursor + skip, line_len - skip);
-            changed = true;
-        }
-        else
-        {
-            buffer_append_n(out, cursor, line_len);
-        }
-
-        if (line_end)
-        {
-            buffer_append_char(out, '\n');
-            cursor = line_end + 1;
-        }
-        else
-        {
-            cursor += line_len;
-        }
-    }
-
-    if (!input_had_trailing_newline && out->length > 0 && out->data[out->length - 1] == '\n')
-    {
-        out->length -= 1;
-        out->data[out->length] = '\0';
-    }
-
-    char* result = changed ? strdup(out->data) : strdup(text);
-    buffer_destroy(out);
-    return result;
 }
 
 bool ends_with_punctuation(const char* text)
@@ -390,28 +302,6 @@ bool is_subscript_position(float char_y1, float line_y1, float char_size)
     return (char_y1 - line_y1) > threshold; // char_y1 is noticeably below line_y1
 }
 
-int get_indent_level(const char* text, float base_indent)
-{
-    if (!text || base_indent <= 0)
-        return 0;
-
-    int spaces = 0;
-    while (*text == ' ')
-    {
-        spaces++;
-        text++;
-    }
-    while (*text == '\t')
-    {
-        spaces += 4; // Treat tab as 4 spaces
-        text++;
-    }
-
-    // Calculate indent level (each level is typically 2-4 spaces)
-    float indent_width = base_indent > 0 ? base_indent : 4.0f;
-    return (int)(spaces / indent_width);
-}
-
 const char* font_weight_from_ratio(float ratio)
 {
     return (ratio >= 0.6f) ? "bold" : "normal";
@@ -434,6 +324,7 @@ size_t count_unicode_chars(const char* text)
     return count;
 }
 
+// fz_copy_rect doesn't extract spaces properly
 char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_ptr)
 {
     fz_context* ctx = (fz_context*)ctx_ptr;
@@ -548,4 +439,47 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
     char* result = buf->length > 0 ? strdup(buf->data) : strdup("");
     buffer_destroy(buf);
     return result;
+}
+
+bool is_lone_page_number(const char* text)
+{
+    if (!text)
+        return false;
+
+    // Skip leading whitespace
+    while (*text == ' ' || *text == '\t')
+        text++;
+
+    // Count digits
+    const char* start = text;
+    int digit_count = 0;
+    while (*text >= '0' && *text <= '9')
+    {
+        digit_count++;
+        text++;
+    }
+
+    // Skip trailing whitespace
+    while (*text == ' ' || *text == '\t')
+        text++;
+
+    // Must be only digits (1-4 digits typical for page numbers) and nothing else
+    return digit_count > 0 && digit_count <= 4 && *text == '\0' && (text - start) == digit_count;
+}
+
+// Check if block is in top or bottom margin area
+bool is_in_margin_area(fz_rect bbox, fz_rect page_bbox, float threshold_percent)
+{
+    float page_height = page_bbox.y1 - page_bbox.y0;
+    float threshold = page_height * threshold_percent;
+
+    // Top margin
+    if (bbox.y0 < page_bbox.y0 + threshold)
+        return true;
+
+    // Bottom margin
+    if (bbox.y1 > page_bbox.y1 - threshold)
+        return true;
+
+    return false;
 }

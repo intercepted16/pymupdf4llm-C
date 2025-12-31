@@ -109,26 +109,6 @@ int buffer_append_format(Buffer* buf, const char* fmt, ...)
     return 0;
 }
 
-int buffer_append_n(Buffer* buf, const char* data, size_t len)
-{
-    if (!buf || (!data && len > 0))
-        return -1;
-
-    if (buffer_reserve(buf, buf->length + len + 1) != 0)
-    {
-        return -1;
-    }
-
-    if (len > 0)
-    {
-        memcpy(buf->data + buf->length, data, len);
-        buf->length += len;
-    }
-
-    buf->data[buf->length] = '\0';
-    return 0;
-}
-
 void buffer_clear(Buffer* buf)
 {
     if (!buf)
@@ -136,4 +116,54 @@ void buffer_clear(Buffer* buf)
     buf->length = 0;
     if (buf->data)
         buf->data[0] = '\0';
+}
+
+void buffer_sappend(Buffer* buf, const char* src)
+{
+    if (!src)
+        return;
+    for (const char* p = src; *p; ++p)
+    {
+        unsigned char c = (unsigned char)*p;
+        switch (c)
+        {
+        case '\\':
+            buffer_append(buf, "\\\\");
+            break;
+        case '"':
+            buffer_append(buf, "\\\"");
+            break;
+        case '\n':
+            buffer_append(buf, "\\n");
+            break;
+        case '\r':
+            buffer_append(buf, "\\r");
+            break;
+        case '\t':
+            buffer_append(buf, "\\t");
+            break;
+        default:
+            if (c < 0x20)
+                buffer_append_format(buf, "\\u%04x", c);
+            else
+                buffer_append_char(buf, (char)c);
+        }
+    }
+}
+
+int buffer_append_n(Buffer* buf, const char* text, size_t n)
+{
+    if (!buf || !text)
+        return -1;
+    if (n == 0)
+        return 0;
+
+    size_t needed = buf->length + n + 1;
+    if (buffer_reserve(buf, needed) != 0)
+        return -1;
+
+    memcpy(buf->data + buf->length, text, n);
+    buf->length += n;
+    buf->data[buf->length] = '\0';
+    return 0;
 }
