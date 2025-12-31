@@ -2,6 +2,8 @@
 
 fast PDF extractor in C using MuPDF. Outputs structured JSON with layout metadata. ~300 pages/second.
 
+**primarily intended for use with python bindings. but for some reason i got bored and added Rust ones too if ya want.**
+
 ---
 
 ## what this is
