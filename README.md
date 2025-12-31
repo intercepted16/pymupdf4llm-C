@@ -1,244 +1,227 @@
 # PyMuPDF4LLM-C
-PyMuPDF4LLM-C provides a **high-throughput C extractor** for MuPDF that emits page-level JSON describing text, layout metadata, figures, and detected tables. It exposes both **Python** and **Rust** bindings for safe and ergonomic access.
+
+fast PDF extractor in C using MuPDF. Outputs structured JSON with layout metadata. ~300 pages/second.
 
 ---
 
-## Highlights
-* **Native extractor** – `libtomd` walks each PDF page with MuPDF and writes `page_XXX.json` artifacts containing block type, geometry, font metrics, and basic heuristics used by retrieval pipelines.
-* **Safe, idiomatic bindings** – Python (`pymupdf4llm_c`) and Rust (`pymupdf4llm-c`) APIs provide easy, memory-safe access without exposing raw C pointers.
-* **Single source of truth** – All heuristics, normalization, and JSON serialization live in dedicated C modules under `src/`, with public headers exposed via `include/` for downstream extensions.
+## what this is
+
+a PDF extractor in C using MuPDF, inspired by pymupdf4llm. i took many of its heuristics and approach but rewrote it in C for speed, then bound it to Python and Rust so it's easy to use.
+
+outputs JSON for every block: text, type, bounding box, font metrics, tables. you get the raw data to process however you need.
+
+speed: ~300 pages/second on CPU. 1 million pages in ~55 minutes.
 
 ---
 
-## Installation
+## the problem
 
-Install the Python package from PyPI:
+most extractors give you raw text (fast but useless) or over-engineered solutions (slow, opinionated, not built for what you need). you want structured data. you want to know where things are, what they are, whether they're headers or body text. and you want this fast if you're processing large volumes.
+
+---
+
+## what you get
+
+JSON with geometry, typography, and structure. use bounding boxes to find natural document boundaries. detect headers and footers by coordinates. reconstruct tables properly. you decide what to do with it.
+
+```json
+{
+  "type": "heading",
+  "text": "Step 1. Gather threat intelligence",
+  "bbox": [64.00, 173.74, 491.11, 218.00],
+  "font_size": 21.64,
+  "font_weight": "bold"
+}
+```
+
+instead of splitting on word count and getting mid-sentence breaks, you use layout to chunk semantically.
+
+---
+
+## comparison
+
+| Tool | Speed (pps) | Quality | Tables | JSON | Use Case |
+|------|-------------|---------|--------|------|----------|
+| pymupdf4llm-C | ~300 | Good | Yes | Structured | High volume, full control |
+| pymupdf4llm | ~10 | Good | Yes | Markdown | General |
+| pymupdf | ~250 | Subpar | No | Text only | Basic extraction |
+| marker | ~0.5-1 | Excellent | Yes | Markdown | Maximum accuracy |
+| docling | ~2-5 | Excellent | Yes | JSON | Document intelligence |
+| PaddleOCR | ~20-50 | Good (OCR) | Yes | Text | Scanned documents |
+
+tradeoff: speed and control vs automatic extraction. marker and docling give higher fidelity if you have time.
+
+---
+
+## what it handles well
+
+- millions of pages, fast
+- custom parsing logic; you own the rules
+- document archives, chunking strategies, any structured extraction
+- CPU only; no expensive inference
+- iterating on parsing logic without waiting hours
+
+---
+
+## what it doesn't handle
+
+- scanned or image-heavy PDFs (no OCR)
+- 99%+ accuracy on edge cases; trades precision for speed
+- figures or image extraction
+
+---
+
+## installation
 
 ```bash
 pip install pymupdf4llm-c
-````
+```
 
-For Rust, install with Cargo:
+or Rust:
 
 ```bash
 cargo add pymupdf4llm-c
 ```
 
----
-
-## Building the Native Extractor
-
-For instructions on building the C extractor, see the dedicated [BUILD.md](BUILD.md) file. This covers building MuPDF from the submodule, compiling the shared library, and setting up `libmupdf.so`.
+wheels for Python 3.10–3.13 on macOS (ARM/x64) and Linux (glibc > 2.11). no Windows; see [BUILD.md](BUILD.md) to compile.
 
 ---
 
-## Usage
+## usage
 
 <details>
-<summary>Python Usage</summary>
+<summary><b>Python</b></summary>
 
-### Basic usage
-
-```python
-from pathlib import Path
-from pymupdf4llm_c import ConversionConfig, ExtractionError, to_json
-
-pdf_path = Path("example.pdf")
-
-try:
-    # Extract to a merged JSON file (default)
-    output_file = to_json(pdf_path)
-    print(f"Extracted to: {output_file}")
-except ExtractionError as exc:
-    print(f"Extraction failed: {exc}")
-```
-
-### Collecting parsed blocks in memory
-
-Use `collect=True` to get parsed JSON in memory instead of writing to a file:
+### basic
 
 ```python
 from pymupdf4llm_c import to_json
 
-# Returns list of page data (merged JSON structure)
+output_file = to_json("example.pdf")
+print(f"Extracted to: {output_file}")
+```
+
+### collect in memory
+
+```python
 pages = to_json("report.pdf", collect=True)
 
 for page_obj in pages:
-    page_num = page_obj.get("page", 0)
     blocks = page_obj.get("data", [])
-    print(f"Page {page_num}: {len(blocks)} blocks")
-    
     for block in blocks:
-        print(f"  Type: {block.get('type')}, Text: {block.get('text', '')}")
+        print(f"{block.get('type')}: {block.get('text', '')}")
 ```
 
-**Memory and Validation:**
-- `collect=True` validates the JSON structure and raises `ValueError` if invalid
-- For PDFs larger than ~100MB, a warning is logged recommending `iterate_json_pages()` instead
-- Disable the warning with `warn_large_collect=False`:
-
-```python
-# Suppress memory warning for large PDFs
-pages = to_json("large_document.pdf", collect=True, warn_large_collect=False)
-```
-```
-
-### Iterating pages with validation
-
-For validation and type-safe iteration over JSON page files, use the helper:
+### large files (streaming)
 
 ```python
 from pymupdf4llm_c import iterate_json_pages
 
-# Yields each page as a typed Block list
-for page_blocks in iterate_json_pages("path/to/page_001.json"):
+for page_blocks in iterate_json_pages("large.pdf"):
     for block in page_blocks:
-        print(f"Block: {block['type']}")
-        if block['type'] == 'table':
-            print(f"  Table: {block.get('row_count')}x{block.get('col_count')}")
+        print(f"Block type: {block['type']}")
 ```
 
-**Memory-Efficient Iteration:**
-This generator is recommended for large PDFs that would consume significant memory with `collect=True`. It validates JSON structure on-the-fly and yields pages one at a time:
+### per-page files
 
 ```python
-from pathlib import Path
-from pymupdf4llm_c import to_json, iterate_json_pages
-
-# Extract PDF (writes to disk, low memory)
-output_file = to_json("large_document.pdf")
-
-# Iterate pages without loading all into memory
-for page_blocks in iterate_json_pages(output_file):
-    # Process each page individually
-    process_page(page_blocks)
+json_files = to_json(pdf_path, output_dir="output_json")
 ```
 
-### Legacy per-page output
+### command-line
 
-Extract to individual per-page JSON files:
-
-```python
-output_dir = Path("output_json")
-json_files = to_json(pdf_path, output_dir=output_dir)
-print(f"Generated {len(json_files)} files")
-```
-
-### Override the shared library location
-
-```python
-config = ConversionConfig(lib_path=Path("/opt/lib/libtomd.so"))
-results = to_json("report.pdf", config=config, collect=True)
+```bash
+python -m pymupdf4llm_c.main input.pdf [output_dir]
 ```
 
 </details>
 
 <details>
-<summary>Rust Usage</summary>
-
-### Basic usage
+<summary><b>Rust</b></summary>
 
 ```rust
-use std::path::Path;
-use pymupdf4llm_c::{to_json, to_json_collect, extract_page_json, PdfError};
+use pymupdf4llm_c::{to_json, to_json_collect, PdfError};
 
 fn main() -> Result<(), PdfError> {
-    let pdf_path = Path::new("example.pdf");
+    let paths = to_json("example.pdf", None)?;
+    println!("Generated {} files", paths.len());
 
-    // Extract to files
-    let paths = to_json(pdf_path, None)?;
-    println!("Generated {} JSON files:", paths.len());
-    for path in &paths {
-        println!("  - {:?}", path);
-    }
-
-    // Collect JSON in memory
-    let pages = to_json_collect(pdf_path, None)?;
-    println!("Parsed {} pages in memory", pages.len());
-
-    // Extract single page
-    let page_json = extract_page_json(pdf_path, 0)?;
-    println!("First page JSON: {}", page_json);
+    let pages = to_json_collect("example.pdf", None)?;
+    println!("Parsed {} pages", pages.len());
 
     Ok(())
 }
 ```
 
-* **Error handling** – all functions return `Result<_, PdfError>`
-* **Memory-safe** – FFI confined internally, no `unsafe` needed at the call site
-* **Output** – file paths or in-memory JSON (`serde_json::Value`)
-
 </details>
 
 ---
 
-## Output Structure
+## output structure
 
-<details>
-<summary>JSON Output Structure</summary>
-
-Each PDF page is extracted to a separate JSON file (e.g., `page_001.json`) containing an array of block objects:
+each page is a JSON array of blocks:
 
 ```json
 [
   {
-    "type": "paragraph",
-    "text": "Extracted text content",
+    "type": "heading",
+    "text": "Introduction",
     "bbox": [72.0, 100.5, 523.5, 130.2],
-    "font_size": 11.0,
-    "font_weight": "normal",
-    "page_number": 0,
-    "length": 22
+    "font_size": 21.64,
+    "font_weight": "bold",
+    "page_number": 0
   },
   {
-    "type": "text",
-    "text": "Bold example text",
-    "bbox": [72.0, 140.5, 523.5, 155.2],
+    "type": "paragraph",
+    "text": "This document describes...",
+    "bbox": [72.0, 140.5, 523.5, 200.2],
     "font_size": 12.0,
-    "font_weight": "bold",
-    "page_number": 0,
-    "length": 17,
-    "spans": [
+    "page_number": 0
+  },
+  {
+    "type": "table",
+    "bbox": [72.0, 220.0, 523.5, 400.0],
+    "row_count": 3,
+    "col_count": 2,
+    "rows": [
       {
-        "text": "Bold example text",
-        "bold": true,
-        "font_size": 12.0
+        "cells": [
+          { "text": "Header A", "bbox": [72.0, 220.0, 297.75, 250.0] },
+          { "text": "Header B", "bbox": [297.75, 220.0, 523.5, 250.0] }
+        ]
       }
     ]
   }
 ]
 ```
 
-**Key Fields:**
-* **type** – `text`, `heading`, `paragraph`, `table`, `figure`, `list`, `code`
-* **bbox** – Bounding box `[x0, y0, x1, y1]`
-* **font_size** – Average font size in points
-* **font_weight** – `normal`, `bold`, or other weights
-* **spans** – (Optional) Array of styled text segments. Only present when:
-  - There are multiple text segments with different styling, OR
-  - The text has applied styling (bold, italic, monospace, etc.)
-  
-  Plain unstyled text blocks will not include the `spans` array to avoid duplication.
-
-**Tables** include `row_count`, `col_count`, and `confidence` scores.
-
-</details>
+fields: `type` (text, heading, paragraph, table, list, code), `bbox` (x0, y0, x1, y1), `font_size`, `font_weight`, `spans` (when styled).
 
 ---
 
-## Command-line Usage (Python)
+## faq
 
-```bash
-python -m pymupdf4llm_c.main input.pdf [output_dir]
-```
+**why not marker/docling?**  
+if you have time and need maximum accuracy, use those. this is for when you're processing millions of pages or iterating on extraction logic quickly.
 
-If `output_dir` is omitted, a sibling directory suffixed with `_json` is created. The command prints the destination and each JSON file that was written.
+**how do i use bounding boxes for semantic chunking?**  
+large y-gaps indicate topic breaks. font size changes show sections. indentation shows hierarchy. you write the logic using the metadata.
+
+**will this handle my complex PDF?**  
+optimized for well-formed digital PDFs. scanned documents, complex table structures, and image-heavy layouts won't extract as well as ML tools.
+
+**commercial use?**  
+only under AGPL v3 or with a license from Artifex (MuPDF's creators). see LICENSE.
 
 ---
 
-## Development Workflow
+## building from source
 
-1. Create and activate a virtual environment, then install dev extras:
+see [BUILD.md](BUILD.md).
+
+---
+
+## development
 
 ```bash
 python -m venv .venv
@@ -246,9 +229,7 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-2. Build the native extractor (see [BUILD.md](BUILD.md))
-
-3. Run linting and tests:
+build native extractor, then:
 
 ```bash
 ./lint.sh
@@ -257,18 +238,15 @@ pytest
 
 ---
 
-## Troubleshooting
+## license
 
-* **Library not found** – Build `libtomd` and ensure it is discoverable.
-* **Build failures** – Check MuPDF headers/libraries.
-* **Different JSON output** – Heuristics live in C code under `src/`; rebuild after changes.
+AGPL v3. commercial use requires license from Artifex.
 
 ---
 
-## License
+## links
 
-AGPL v3. Needed because MuPDF is AGPL.
+- repo: [github.com/intercepted16/pymupdf4llm-C](https://github.com/intercepted16/pymupdf4llm-C)
+- pypi: [pymupdf4llm-C](https://pypi.org/project/pymupdf4llm-C)
 
-If your project is free and OSS you can use it as long as it’s also AGPL licensed. For commercial projects, you need a license from Artifex, the creators of MuPDF.
-
-See [LICENSE](LICENSE.md) for full details.
+feedback welcome.
