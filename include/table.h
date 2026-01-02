@@ -4,6 +4,7 @@
 #include "block_info.h"
 #include "font_metrics.h"
 #define EDGE_MIN_LENGTH 3.0
+#define EDGE_MAX_WIDTH 3.0  // Maximum line width to be considered a table edge
 #define MAX_COLUMNS 32
 
 // A struct to represent a horizontal or vertical edge

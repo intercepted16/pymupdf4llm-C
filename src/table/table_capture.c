@@ -16,9 +16,9 @@ static void capture_stroke_path(fz_context* ctx, fz_device* dev_, const fz_path*
     double width = bbox.x1 - bbox.x0;
     double height = bbox.y1 - bbox.y0;
 
-    if (height <= 1.0 && width >= EDGE_MIN_LENGTH)
+    if (height <= EDGE_MAX_WIDTH && width >= EDGE_MIN_LENGTH)
         add_to_edge_array(&dev->edges, (Edge){bbox.x0, bbox.y0, bbox.x1, bbox.y0, 'h'});
-    else if (width <= 1.0 && height >= EDGE_MIN_LENGTH)
+    else if (width <= EDGE_MAX_WIDTH && height >= EDGE_MIN_LENGTH)
         add_to_edge_array(&dev->edges, (Edge){bbox.x0, bbox.y0, bbox.x0, bbox.y1, 'v'});
 }
 

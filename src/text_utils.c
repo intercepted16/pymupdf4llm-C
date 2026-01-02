@@ -496,6 +496,30 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
     return result;
 }
 
+char* trim_whitespace(char* text)
+{
+    if (!text)
+        return text;
+
+    while (*text && isspace((unsigned char)*text))
+    {
+        text++;
+    }
+
+    if (*text == '\0')
+        return text;
+
+    char* end = text + strlen(text) - 1;
+    while (end > text && isspace((unsigned char)*end))
+    {
+        end--;
+    }
+
+    *(end + 1) = '\0';
+
+    return text;
+}
+
 bool is_lone_page_number(const char* text)
 {
     if (!text)

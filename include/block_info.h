@@ -10,6 +10,7 @@
     X(HEADING, "heading") \
     X(TABLE, "table") \
     X(LIST, "list") \
+    X(LINK, "link") \
     X(FIGURE, "figure") \
     X(CODE, "code") \
     X(FOOTNOTE, "footnote") \
@@ -54,10 +55,11 @@ typedef struct TextSpan
  */
 typedef struct Link
 {
-    char* text;        /**< Link display text. */
-    char* uri;         /**< Target URI. */
-    fz_rect bbox;      /**< Bounding box. */
-    struct Link* next; /**< Next link in list. */
+    char* text;         /**< Link display text. */
+    char* uri;          /**< Target URI. */
+    fz_rect bbox;       /**< Bounding box. */
+    TextSpan* spans;    /**< Styled text spans for link text. */
+    struct Link* next;  /**< Next link in list. */
 } Link;
 
 /**
@@ -82,7 +84,6 @@ struct BlockInfo
     float column_consistency; /**< Table column alignment score. */
     int row_count;            /**< Estimated row count for tables. */
     int cell_count;           /**< Estimated cell count for tables. */
-    float confidence;         /**< Heuristic confidence for tables/headings. */
     int page_number;          /**< Zero-based page index. */
     int heading_level;        /**< Heading level 1-6 (0 if not a heading). */
     int column_index;         /**< Column index for multi-column layout (0-based). */

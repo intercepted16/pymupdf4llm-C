@@ -64,7 +64,6 @@ class TestJsonExtraction:
         for table in tables:
             assert table.get("row_count", 0) >= 2
             assert table.get("col_count", 0) >= 2
-            assert table.get("confidence", 0.0) >= 0.2
             assert table.get("text", "") == ""
 
     def test_heading_detection(self, extract_blocks: ExtractorCallable):

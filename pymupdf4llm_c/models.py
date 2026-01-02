@@ -9,6 +9,7 @@ from typing import List, Optional
 @dataclass(slots=True)
 class BBox:
     """Bounding box coordinates."""
+
     x0: float
     y0: float
     x1: float
@@ -18,6 +19,7 @@ class BBox:
 @dataclass(slots=True)
 class TableCell:
     """A single cell in a table."""
+
     bbox: BBox
     text: str
 
@@ -25,6 +27,7 @@ class TableCell:
 @dataclass(slots=True)
 class TableRow:
     """A single row in a table."""
+
     bbox: BBox
     cells: List[TableCell]
 
@@ -32,11 +35,11 @@ class TableRow:
 @dataclass(slots=True)
 class Block:
     """A content block extracted from a PDF page."""
+
     type: str
     text: str
     bbox: BBox
     font_size: float
-    font_weight: str
     page_number: int
     length: int
 
@@ -45,7 +48,6 @@ class Block:
     row_count: Optional[int] = None
     col_count: Optional[int] = None
     cell_count: Optional[int] = None
-    confidence: Optional[float] = None
     rows: Optional[List[TableRow]] = None
 
 

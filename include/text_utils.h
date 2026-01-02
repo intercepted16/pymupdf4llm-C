@@ -124,6 +124,14 @@ bool is_subscript_position(float char_y1, float line_y1, float char_size);
  */
 bool has_visible_content(const char* text);
 
+/**
+ * @brief Trim leading and trailing whitespace from a string in-place.
+ *
+ * @param text Input string (modified in-place).
+ * @return Pointer to the trimmed string (points to same buffer, advanced past leading whitespace).
+ */
+char* trim_whitespace(char* text);
+
 bool is_lone_page_number(const char* text);
 
 bool is_in_margin_area(fz_rect bbox, fz_rect page_bbox, float threshold_percent);

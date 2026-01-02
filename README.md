@@ -2,13 +2,13 @@
 
 fast PDF extractor in C using MuPDF. Outputs structured JSON with layout metadata. ~300 pages/second.
 
-**primarily intended for use with python bindings. but for some reason i got bored and added Rust ones too if ya want.**
+**primarily intended for use with python bindings.**
 
 ---
 
 ## what this is
 
-a PDF extractor in C using MuPDF, inspired by pymupdf4llm. i took many of its heuristics and approach but rewrote it in C for speed, then bound it to Python and Rust so it's easy to use.
+a PDF extractor in C using MuPDF, inspired by pymupdf4llm. i took many of its heuristics and approach but rewrote it in C for speed, then bound it to Python so it's easy to use.
 
 outputs JSON for every block: text, type, bounding box, font metrics, tables. you get the raw data to process however you need.
 
@@ -26,17 +26,169 @@ most extractors give you raw text (fast but useless) or over-engineered solution
 
 JSON with geometry, typography, and structure. use bounding boxes to find natural document boundaries. detect headers and footers by coordinates. reconstruct tables properly. you decide what to do with it.
 
+<details>
+<summary><b>heading with accurate coordinates and styling</b></summary>
+
 ```json
 {
   "type": "heading",
-  "text": "Step 1. Gather threat intelligence",
-  "bbox": [64.00, 173.74, 491.11, 218.00],
-  "font_size": 21.64,
-  "font_weight": "bold"
+  "bbox": [111.80, 187.53, 509.10, 217.56],
+  "font_size": 32.0,
+  "length": 25,
+  "level": 1,
+  "spans": [
+    {
+      "text": "Introduction",
+      "font_size": 32.0,
+      "bold": false,
+      "italic": false,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": false,
+      "uri": false
+    }
+  ]
 }
 ```
+</details>
+
+<details>
+<summary><b>paragraph with mixed styling (bold, italic, links)</b></summary>
+
+```json
+{
+  "type": "text",
+  "bbox": [72.03, 140.5, 542.7, 200.2],
+  "font_size": 12.0,
+  "length": 189,
+  "lines": 4,
+  "spans": [
+    {
+      "text": "Cloud technology enables ",
+      "font_size": 12.0,
+      "bold": false,
+      "italic": false,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": false,
+      "uri": false
+    },
+    {
+      "text": "multi-tenant",
+      "font_size": 12.0,
+      "bold": true,
+      "italic": true,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": true,
+      "uri": "https://aws.amazon.com/multi-tenant"
+    },
+    {
+      "text": " services that scale efficiently across infrastructure.",
+      "font_size": 12.0,
+      "bold": false,
+      "italic": false,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": false,
+      "uri": false
+    }
+  ]
+}
+```
+</details>
+
+<details>
+<summary><b>bulleted and nested list with indentation</b></summary>
+
+```json
+{
+  "type": "list",
+  "bbox": [40.44, 199.44, 240.01, 345.78],
+  "font_size": 11.04,
+  "length": 89,
+  "spans": [],
+  "items": [
+    {
+      "spans": [{"text": "Logical isolation boundaries", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
+      "list_type": "bulleted",
+      "indent": 0,
+      "prefix": false
+    },
+    {
+      "spans": [{"text": "Data center architecture", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
+      "list_type": "bulleted",
+      "indent": 1,
+      "prefix": false
+    },
+    {
+      "spans": [{"text": "Nested list item", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
+      "list_type": "bulleted",
+      "indent": 2,
+      "prefix": false
+    }
+  ]
+}
+```
+</details>
+
+<details>
+<summary><b>table with detected structure</b></summary>
+
+```json
+{
+  "type": "table",
+  "bbox": [72.0, 220.0, 523.5, 400.0],
+  "font_size": 12.0,
+  "length": 256,
+  "row_count": 3,
+  "col_count": 2,
+  "cell_count": 2,
+  "spans": [],
+  "rows": [
+    {
+      "bbox": [72.0, 220.0, 523.5, 250.0],
+      "cells": [
+        {
+          "bbox": [72.0, 220.0, 297.75, 250.0],
+          "spans": [{"text": "Feature", "font_size": 12.0, "bold": true, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
+        },
+        {
+          "bbox": [297.75, 220.0, 523.5, 250.0],
+          "spans": [{"text": "Speed (pages/sec)", "font_size": 12.0, "bold": true, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
+        }
+      ]
+    },
+    {
+      "bbox": [72.0, 250.0, 523.5, 280.0],
+      "cells": [
+        {
+          "bbox": [72.0, 250.0, 297.75, 280.0],
+          "spans": [{"text": "pymupdf4llm-C", "font_size": 12.0, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
+        },
+        {
+          "bbox": [297.75, 250.0, 523.5, 280.0],
+          "spans": [{"text": "~300", "font_size": 12.0, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
+        }
+      ]
+    }
+  ]
+}
+```
+</details>
 
 instead of splitting on word count and getting mid-sentence breaks, you use layout to chunk semantically.
+
+> note that a span represents a logical group of styling. in most blocks, it is likely that there is only one span.
+> some information in the top level JSON may be inaccurate and/or redundant. 
 
 ---
 
@@ -79,11 +231,7 @@ tradeoff: speed and control vs automatic extraction. marker and docling give hig
 pip install pymupdf4llm-c
 ```
 
-or Rust:
-
-```bash
-cargo add pymupdf4llm-c
-```
+**i use uv**, you can prefix with `uv` or whatever you want.
 
 wheels for Python 3.10–3.13 on macOS (ARM/x64) and Linux (glibc > 2.11). no Windows; see [BUILD.md](BUILD.md) to compile.
 
@@ -93,6 +241,8 @@ wheels for Python 3.10–3.13 on macOS (ARM/x64) and Linux (glibc > 2.11). no Wi
 
 <details>
 <summary><b>Python</b></summary>
+
+---
 
 ### basic
 
@@ -138,66 +288,184 @@ python -m pymupdf4llm_c.main input.pdf [output_dir]
 
 </details>
 
-<details>
-<summary><b>Rust</b></summary>
-
-```rust
-use pymupdf4llm_c::{to_json, to_json_collect, PdfError};
-
-fn main() -> Result<(), PdfError> {
-    let paths = to_json("example.pdf", None)?;
-    println!("Generated {} files", paths.len());
-
-    let pages = to_json_collect("example.pdf", None)?;
-    println!("Parsed {} pages", pages.len());
-
-    Ok(())
-}
-```
-
-</details>
-
 ---
 
 ## output structure
 
-each page is a JSON array of blocks:
+each page is a JSON array of blocks. every block has:
 
+- `type`: block type (text, heading, paragraph, list, table, code)
+- `bbox`: [x0, y0, x1, y1] bounding box coordinates
+- `font_size`: font size in points (average for multi-span blocks)
+- `length`: character count
+- `spans`: array of styled text spans with style flags (bold, italic, monospace, etc.)
+
+### block types
+
+**text/paragraph/code blocks:**
 ```json
-[
-  {
-    "type": "heading",
-    "text": "Introduction",
-    "bbox": [72.0, 100.5, 523.5, 130.2],
-    "font_size": 21.64,
-    "font_weight": "bold",
-    "page_number": 0
-  },
-  {
-    "type": "paragraph",
-    "text": "This document describes...",
-    "bbox": [72.0, 140.5, 523.5, 200.2],
-    "font_size": 12.0,
-    "page_number": 0
-  },
-  {
-    "type": "table",
-    "bbox": [72.0, 220.0, 523.5, 400.0],
-    "row_count": 3,
-    "col_count": 2,
-    "rows": [
-      {
-        "cells": [
-          { "text": "Header A", "bbox": [72.0, 220.0, 297.75, 250.0] },
-          { "text": "Header B", "bbox": [297.75, 220.0, 523.5, 250.0] }
-        ]
-      }
-    ]
-  }
-]
+{
+  "type": "text",
+  "bbox": [72.03, 132.66, 542.7, 352.22],
+  "font_size": 12.0,
+  "length": 1145,
+  "lines": 14,
+  "spans": [
+    {
+      "text": "Block content here...",
+      "font_size": 12.0,
+      "bold": false,
+      "italic": false,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": false,
+      "uri": false
+    }
+  ]
+}
 ```
 
-fields: `type` (text, heading, paragraph, table, list, code), `bbox` (x0, y0, x1, y1), `font_size`, `font_weight`, `spans` (when styled).
+**headings:**
+```json
+{
+  "type": "heading",
+  "bbox": [111.80, 187.53, 509.10, 217.56],
+  "font_size": 32.0,
+  "length": 25,
+  "level": 1,
+  "spans": [
+    {
+      "text": "Heading Text",
+      "font_size": 32.0,
+      "bold": false,
+      "italic": false,
+      "monospace": false,
+      "strikeout": false,
+      "superscript": false,
+      "subscript": false,
+      "link": false,
+      "uri": false
+    }
+  ]
+}
+```
+
+**lists:**
+```json
+{
+  "type": "list",
+  "bbox": [40.44, 199.44, 107.01, 345.78],
+  "font_size": 11.04,
+  "length": 89,
+  "spans": [],
+  "items": [
+    {
+      "spans": [
+        {
+          "text": "First item",
+          "font_size": 11.04,
+          "bold": false,
+          "italic": false,
+          "monospace": false,
+          "strikeout": false,
+          "superscript": false,
+          "subscript": false,
+          "link": false,
+          "uri": false
+        }
+      ],
+      "list_type": "bulleted",
+      "indent": 0,
+      "prefix": false
+    },
+    {
+      "spans": [
+        {
+          "text": "Second item",
+          "font_size": 11.04,
+          "bold": false,
+          "italic": false,
+          "monospace": false,
+          "strikeout": false,
+          "superscript": false,
+          "subscript": false,
+          "link": false,
+          "uri": false
+        }
+      ],
+      "list_type": "numbered",
+      "indent": 0,
+      "prefix": "1."
+    }
+  ]
+}
+```
+
+**tables:**
+```json
+{
+  "type": "table",
+  "bbox": [72.0, 220.0, 523.5, 400.0],
+  "font_size": 12.0,
+  "length": 256,
+  "row_count": 3,
+  "col_count": 2,
+  "cell_count": 2,
+  "spans": [],
+  "rows": [
+    {
+      "bbox": [72.0, 220.0, 523.5, 250.0],
+      "cells": [
+        {
+          "bbox": [72.0, 220.0, 297.75, 250.0],
+          "spans": [
+            {
+              "text": "Header A",
+              "font_size": 12.0,
+              "bold": false,
+              "italic": false,
+              "monospace": false,
+              "strikeout": false,
+              "superscript": false,
+              "subscript": false,
+              "link": false,
+              "uri": false
+            }
+          ]
+        },
+        {
+          "bbox": [297.75, 220.0, 523.5, 250.0],
+          "spans": [
+            {
+              "text": "Header B",
+              "font_size": 12.0,
+              "bold": false,
+              "italic": false,
+              "monospace": false,
+              "strikeout": false,
+              "superscript": false,
+              "subscript": false,
+              "link": false,
+              "uri": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### span fields
+
+all text spans contain:
+- `text`: span content
+- `font_size`: size in points
+- `bold`, `italic`, `monospace`, `strikeout`, `superscript`, `subscript`: boolean style flags
+- `link`: boolean indicating if span contains a hyperlink
+- `uri`: URI string if linked, otherwise false
 
 ---
 
@@ -213,7 +481,7 @@ large y-gaps indicate topic breaks. font size changes show sections. indentation
 optimized for well-formed digital PDFs. scanned documents, complex table structures, and image-heavy layouts won't extract as well as ML tools.
 
 **commercial use?**  
-only under AGPL v3 or with a license from Artifex (MuPDF's creators). see LICENSE.
+only under AGPL v3 or with a license from Artifex (MuPDF's creators). see [LICENSE](LICENSE)
 
 ---
 
@@ -223,26 +491,16 @@ see [BUILD.md](BUILD.md).
 
 ---
 
-## development
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-```
-
-build native extractor, then:
-
-```bash
-./lint.sh
-pytest
-```
-
----
-
 ## license
 
+- derived work of `mupdf`.
+- inspired by `pymupdf4llm`; i have used it as a reference
+
 AGPL v3. commercial use requires license from Artifex.
+
+modifications and enhancements specific to this library are 2026 Adit Bajaj.
+
+see [LICENSE](LICENSE) for the legal stuff.
 
 ---
 

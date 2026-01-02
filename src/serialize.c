@@ -8,6 +8,30 @@
 #include "text_utils.h"
 #include "serialize.h"
 
+static void serialize_block_base_fields(Buffer* json, const BlockInfo* info)
+{
+    buffer_append_format(json, "\"type\":\"%s\"", block_type_to_string(info->type));
+    buffer_append_format(json, ",\"bbox\":[%.2f,%.2f,%.2f,%.2f]", info->bbox.x0, info->bbox.y0, info->bbox.x1,
+                         info->bbox.y1);
+    buffer_append_format(json, ",\"length\":%zu", info->text_chars);
+}
+
+static Link* find_link_for_text(const BlockInfo* info, const char* text)
+{
+    if (!info->links || !text || !text[0])
+        return NULL;
+
+    for (Link* link = info->links; link; link = link->next)
+    {
+        if (!link->text || !link->uri)
+            continue;
+
+        if (strstr(link->text, text) || strstr(text, link->text))
+            return link;
+    }
+    return NULL;
+}
+
 Buffer* serialize_blocks_to_json(const BlockArray* blocks)
 {
     Buffer* json = buffer_create(1024);
@@ -30,24 +54,7 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         first_block = 0;
 
         buffer_append(json, "{");
-        buffer_append_format(json, "\"type\":\"%s\"", block_type_to_string(info->type));
-        buffer_append_format(json, ",\"bbox\":[%.2f,%.2f,%.2f,%.2f]", info->bbox.x0, info->bbox.y0, info->bbox.x1,
-                             info->bbox.y1);
-        buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
-        buffer_append_format(json, ",\"font_weight\":\"%s\"", font_weight_from_ratio(info->bold_ratio));
-        buffer_append_format(json, ",\"length\":%zu", info->text_chars);
-
-        // Add styling ratios
-        if (info->bold_ratio > 0.0f)
-            buffer_append_format(json, ",\"bold_ratio\":%.2f", info->bold_ratio);
-        if (info->italic_ratio > 0.0f)
-            buffer_append_format(json, ",\"italic_ratio\":%.2f", info->italic_ratio);
-        if (info->mono_ratio > 0.0f)
-            buffer_append_format(json, ",\"mono_ratio\":%.2f", info->mono_ratio);
-        if (info->has_superscript)
-            buffer_append(json, ",\"has_superscript\":true");
-        if (info->is_footnote)
-            buffer_append(json, ",\"is_footnote\":true");
+        serialize_block_base_fields(json, info);
 
         if (info->type == BLOCK_PARAGRAPH || info->type == BLOCK_CODE)
         {
@@ -66,33 +73,67 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             int first_span = 1;
             for (TextSpan* span = info->spans; span; span = span->next)
             {
+                if (!span->text)
+                    continue;
+
+                char* trimmed = trim_whitespace(span->text);
+                if (!trimmed || !trimmed[0])
+                    continue;
+
                 if (!first_span)
                     buffer_append(json, ",");
                 first_span = 0;
 
                 buffer_append(json, "{\"text\":\"");
-                // Escape span text
-                if (span->text)
-                {
-                    buffer_sappend(json, span->text);
-                }
+                buffer_sappend(json, trimmed);
                 buffer_append(json, "\"");
 
-                // Add style flags
                 if (span->style.bold)
                     buffer_append(json, ",\"bold\":true");
+                else
+                    buffer_append(json, ",\"bold\":false");
+
                 if (span->style.italic)
                     buffer_append(json, ",\"italic\":true");
+                else
+                    buffer_append(json, ",\"italic\":false");
+
                 if (span->style.monospace)
                     buffer_append(json, ",\"monospace\":true");
+                else
+                    buffer_append(json, ",\"monospace\":false");
+
                 if (span->style.strikeout)
                     buffer_append(json, ",\"strikeout\":true");
+                else
+                    buffer_append(json, ",\"strikeout\":false");
+
                 if (span->style.superscript)
                     buffer_append(json, ",\"superscript\":true");
+                else
+                    buffer_append(json, ",\"superscript\":false");
+
                 if (span->style.subscript)
                     buffer_append(json, ",\"subscript\":true");
+                else
+                    buffer_append(json, ",\"subscript\":false");
 
                 buffer_append_format(json, ",\"font_size\":%.2f", span->font_size);
+
+                Link* span_link = find_link_for_text(info, span->text);
+                if (span_link)
+                {
+                    buffer_append(json, ",\"link\":true");
+                    buffer_append(json, ",\"uri\":\"");
+                    buffer_sappend(json, span_link->uri);
+                    buffer_append(json, "\"");
+                }
+                else
+                {
+                    buffer_append(json, ",\"link\":false");
+                    buffer_append(json, ",\"uri\":false");
+                }
+
                 buffer_append(json, "}");
             }
             buffer_append(json, "]");
@@ -101,36 +142,16 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
         {
             // Synthesize a span if we have text but no spans (e.g. for some lists)
             buffer_append(json, ",\"spans\":[{\"text\":\"");
-            buffer_sappend(json, info->text);
-            buffer_append(json, "\"}]");
+            char* trimmed = trim_whitespace(info->text);
+            buffer_sappend(json, trimmed);
+            buffer_append(json, "\",\"bold\":false,\"italic\":false,\"monospace\":false,\"strikeout\":false,"
+                                "\"superscript\":false,\"subscript\":false");
+            buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
+            buffer_append(json, ",\"link\":false,\"uri\":false}]");
         }
-
-        // Serialize links if present
-        if (info->links)
+        else
         {
-            buffer_append(json, ",\"links\":[");
-            int first_link = 1;
-            for (Link* link = info->links; link; link = link->next)
-            {
-                if (!first_link)
-                    buffer_append(json, ",");
-                first_link = 0;
-
-                buffer_append(json, "{\"spans\":[{\"text\":\"");
-                // Escape link text
-                if (link->text)
-                {
-                    buffer_sappend(json, link->text);
-                }
-                buffer_append(json, "\"}],\"uri\":\"");
-                // Escape URI
-                if (link->uri)
-                {
-                    buffer_sappend(json, link->uri);
-                }
-                buffer_append(json, "\"}");
-            }
-            buffer_append(json, "]");
+            buffer_append(json, ",\"spans\":[]");
         }
 
         if (info->type == BLOCK_LIST && info->list_items)
@@ -146,9 +167,13 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                 // Escape list item text
                 if (list->items[li])
                 {
-                    buffer_sappend(json, list->items[li]);
+                    char* trimmed = trim_whitespace(list->items[li]);
+                    buffer_sappend(json, trimmed);
                 }
-                buffer_append(json, "\"}]");
+                buffer_append(json, "\",\"bold\":false,\"italic\":false,\"monospace\":false,\"strikeout\":false,"
+                                    "\"superscript\":false,\"subscript\":false");
+                buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
+                buffer_append(json, ",\"link\":false,\"uri\":false}]");
 
                 // Add list item type
                 if (list->types)
@@ -156,11 +181,19 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_append_format(json, ",\"list_type\":\"%s\"",
                                          list->types[li] == LIST_NUMBERED ? "numbered" : "bulleted");
                 }
+                else
+                {
+                    buffer_append(json, ",\"list_type\":false");
+                }
 
                 // Add indent level
                 if (list->indents)
                 {
                     buffer_append_format(json, ",\"indent\":%d", list->indents[li]);
+                }
+                else
+                {
+                    buffer_append(json, ",\"indent\":false");
                 }
 
                 // Add original prefix for numbered lists
@@ -170,10 +203,18 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_sappend(json, list->prefixes[li]);
                     buffer_append(json, "\"");
                 }
+                else
+                {
+                    buffer_append(json, ",\"prefix\":false");
+                }
 
                 buffer_append(json, "}");
             }
             buffer_append(json, "]");
+        }
+        else if (info->type == BLOCK_LIST)
+        {
+            buffer_append(json, ",\"items\":[]");
         }
 
         if (info->type == BLOCK_TABLE && info->table_data)
@@ -200,10 +241,6 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
             buffer_append_format(json, ",\"row_count\":%d", visible_row_count);
             buffer_append_format(json, ",\"col_count\":%d", info->column_count);
             buffer_append_format(json, ",\"cell_count\":%d", info->column_count);
-            if (info->confidence > 0.0f)
-            {
-                buffer_append_format(json, ",\"confidence\":%.2f", info->confidence);
-            }
 
             // Serialize rows
             buffer_append(json, ",\"rows\":[");
@@ -257,13 +294,21 @@ Buffer* serialize_blocks_to_json(const BlockArray* blocks)
                     buffer_append(json, ",\"spans\":[{\"text\":\"");
                     if (cell->text)
                     {
-                        buffer_sappend(json, cell->text);
+                        char* trimmed = trim_whitespace(cell->text);
+                        buffer_sappend(json, trimmed);
                     }
-                    buffer_append(json, "\"}]}");
+                    buffer_append(json, "\",\"bold\":false,\"italic\":false,\"monospace\":false,\"strikeout\":false,"
+                                        "\"superscript\":false,\"subscript\":false");
+                    buffer_append_format(json, ",\"font_size\":%.2f", info->avg_font_size);
+                    buffer_append(json, ",\"link\":false,\"uri\":false}]}");
                 }
                 buffer_append(json, "]}");
             }
             buffer_append(json, "]");
+        }
+        else if (info->type == BLOCK_TABLE)
+        {
+            buffer_append(json, ",\"rows\":[]");
         }
 
         buffer_append(json, "}");

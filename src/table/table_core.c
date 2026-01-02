@@ -15,7 +15,6 @@
 #include <stdbool.h>
 
 DEFINE_ARRAY_METHODS_PUBLIC(Edge, Edge, edge)
-DEFINE_ARRAY_METHODS_PUBLIC(Point, Point, point)
 
 // Helper function for sorting floats
 static int cmp_floats(const void* a, const void* b)
@@ -117,90 +116,11 @@ static bool has_columnar_layout(fz_context* ctx, fz_page* page)
 
 // Main orchestration function: ONLY detects actual grid-based tables
 // Two-column layouts are NOT tables and should not be treated as such
-// Helper to check if a table is likely a diagram text/label collection rather than a data table
-static bool is_likely_diagram_table(Table* table)
-{
-    int total_chars = 0;
-    int non_empty_cells = 0;
-    int single_word_cells = 0;
-
-    for (int r = 0; r < table->count; r++)
-    {
-        for (int c = 0; c < table->rows[r].count; c++)
-        {
-            char* text = table->rows[r].cells[c].text;
-            if (text && text[0])
-            {
-                size_t len = strlen(text);
-                total_chars += len;
-                non_empty_cells++;
-
-                // Check for single short words (typical in diagrams)
-                if (len < 10 && !strchr(text, ' '))
-                    single_word_cells++;
-            }
-        }
-    }
-
-    // Heuristic 1: Very sparse content
-    if (non_empty_cells == 0)
-        return true;
-
-    // Heuristic 2: Average cell length is very short (labels)
-    float avg_chars = (float)total_chars / non_empty_cells;
-    if (avg_chars < 8.0f)
-        return true;
-
-    // Heuristic 3: High percentage of single-word cells
-    if (non_empty_cells > 4 && (float)single_word_cells / non_empty_cells > 0.6f)
-        return true;
-
-    return false;
-}
-
-// Function to validate table against word boundaries
-static bool is_table_valid_against_words(Table* table, WordRectArray* words)
-{
-    if (!words || words->count == 0)
-        return true;
-
-    int bad_row_boundaries = 0;
-    int total_boundaries = 0;
-
-    // Check row boundaries
-    for (int r = 0; r < table->count; r++)
-    {
-        fz_rect row_rect = table->rows[r].bbox;
-
-        // Check top boundary (only for first row or significant gaps)
-        if (r == 0)
-        {
-            if (intersects_words_h(row_rect.y0, table->bbox, words))
-                bad_row_boundaries++;
-            total_boundaries++;
-        }
-
-        // Check bottom boundary
-        if (intersects_words_h(row_rect.y1, table->bbox, words))
-            bad_row_boundaries++;
-        total_boundaries++;
-    }
-
-    if (total_boundaries == 0)
-        return true;
-
-    // Reject if more than 20% of boundaries cut through words
-    return ((float)bad_row_boundaries / total_boundaries) <= 0.2f;
-}
-
-// Main orchestration function: ONLY detects actual grid-based tables
-// Two-column layouts are NOT tables and should not be treated as such
 TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_number, BlockArray* blocks)
 {
     (void)blocks;
 
     fz_page* page = NULL;
-    fz_stext_page* textpage = NULL;
     CaptureDevice* capture_dev = NULL;
     TableArray* tables = NULL;
     SpatialHash hash;
@@ -210,7 +130,6 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
     fz_try(ctx)
     {
         page = fz_load_page(ctx, doc, page_number);
-        textpage = fz_new_stext_page_from_page(ctx, page, NULL);
 
         // Detect grid lines for real table structure
         capture_dev = (CaptureDevice*)new_capture_device(ctx);
@@ -237,8 +156,14 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
             }
         }
 
-        merge_edges(&h_edges, SNAP_TOLERANCE, JOIN_TOLERANCE);
-        merge_edges(&v_edges, SNAP_TOLERANCE, JOIN_TOLERANCE);
+        fz_rect page_rect = fz_bound_page(ctx, page);
+        float page_width = page_rect.x1 - page_rect.x0;
+
+        double snap_tolerance = page_width * SNAP_TOLERANCE_RATIO;
+        double join_tolerance = page_width * JOIN_TOLERANCE_RATIO;
+
+        merge_edges(&h_edges, snap_tolerance, join_tolerance);
+        merge_edges(&v_edges, snap_tolerance, join_tolerance);
 
         fprintf(stderr, "Page %d: Detected %d h_edges, %d v_edges\n", page_number + 1, h_edges.count, v_edges.count);
 
@@ -259,56 +184,63 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
 
             CellArray cells;
             init_cell_array(&cells);
-            find_cells(&intersections, &hash, &cells);
+            find_cells(&intersections, &hash, &cells, page_rect);
+
+            int original_count = cells.count;
+            int write_idx = 0;
+            for (int i = 0; i < cells.count; i++)
+            {
+                fz_rect cell = cells.items[i];
+
+                float out_top = fmaxf(0, page_rect.y0 - cell.y0);
+                float out_bottom = fmaxf(0, cell.y1 - page_rect.y1);
+                float out_left = fmaxf(0, page_rect.x0 - cell.x0);
+                float out_right = fmaxf(0, cell.x1 - page_rect.x1);
+                float max_out = fmaxf(fmaxf(out_top, out_bottom), fmaxf(out_left, out_right));
+
+                if (max_out > 10.0f)
+                {
+                    continue; // Skip this cell
+                }
+
+                if (max_out > 0)
+                {
+                    cell = fz_intersect_rect(cell, page_rect);
+                }
+
+                cells.items[write_idx++] = cell;
+            }
+            cells.count = write_idx;
+
+            if (original_count != cells.count)
+            {
+                fprintf(stderr, "Page %d: Removed %d out-of-bounds cells\n", page_number + 1,
+                        original_count - cells.count);
+            }
+
+            if (cells.count > 0)
+            {
+                if (cells.count > 0)
+                {
+                    fz_rect cells_bbox = cells.items[0];
+                    for (int i = 1; i < cells.count; i++)
+                    {
+                        cells_bbox = fz_union_rect(cells_bbox, cells.items[i]);
+                    }
+                    fprintf(stderr, "  Cells bbox range: (%.1f, %.1f, %.1f, %.1f)\n", cells_bbox.x0, cells_bbox.y0,
+                            cells_bbox.x1, cells_bbox.y1);
+                }
+
+                deduplicate_cells(&cells);
+                fprintf(stderr, "Page %d: After deduplication: %d cells\n", page_number + 1, cells.count);
+            }
 
             free_point_array(&intersections);
 
-            tables = group_cells_into_tables(&cells);
+            tables = group_cells_into_tables(&cells, page_rect);
             free_cell_array(&cells);
 
-            fz_rect page_rect = fz_bound_page(ctx, page);
             bool tables_valid = validate_tables(tables, page_rect);
-
-            // Phase 1: Word-cutting validation
-            if (tables_valid && tables && tables->count > 0)
-            {
-                WordRectArray words;
-                init_word_rect_array(&words);
-                extract_word_rects(ctx, textpage, page_rect, &words);
-
-                // Filter invalid tables
-                int valid_count = 0;
-                for (int t = 0; t < tables->count; t++)
-                {
-                    if (is_table_valid_against_words(&tables->tables[t], &words))
-                    {
-                        if (t != valid_count)
-                        {
-                            tables->tables[valid_count] = tables->tables[t];
-                        }
-                        valid_count++;
-                    }
-                    else
-                    {
-                        // Free rejected table
-                        fprintf(stderr, "Page %d: Rejecting table %d (cuts through text words)\n", page_number + 1, t);
-                        Table* tb = &tables->tables[t];
-                        for (int r = 0; r < tb->count; r++)
-                            free(tb->rows[r].cells);
-                        free(tb->rows);
-                    }
-                }
-                tables->count = valid_count;
-                free_word_rect_array(&words);
-
-                if (tables->count == 0 && tables->tables)
-                {
-                    free(tables->tables);
-                    free(tables);
-                    tables = NULL;
-                    tables_valid = false;
-                }
-            }
 
             fprintf(stderr, "Page %d: Grid detection valid=%d\n", page_number + 1, tables_valid);
 
@@ -333,8 +265,6 @@ TableArray* find_tables_on_page(fz_context* ctx, fz_document* doc, int page_numb
     {
         if (capture_dev)
             fz_drop_device(ctx, (fz_device*)capture_dev);
-        if (textpage)
-            fz_drop_stext_page(ctx, textpage);
         if (page)
             fz_drop_page(ctx, page);
         free_spatial_hash(&hash);
@@ -471,14 +401,6 @@ void process_tables_for_page(fz_context* ctx, fz_stext_page* textpage, TableArra
             continue;
         }
 
-        // Phase 2: Content Validation
-        // Reject tables that look like diagrams (short labels, sparse content)
-        if (is_likely_diagram_table(table))
-        {
-            fprintf(stderr, "Page %d: Rejecting table (looks like diagram/labels)\n", page_number + 1);
-            continue;
-        }
-
         // Remove overlapping text blocks
         for (size_t b = 0; b < blocks->count; b++)
         {
@@ -516,7 +438,6 @@ void process_tables_for_page(fz_context* ctx, fz_stext_page* textpage, TableArra
             table_block->column_count = (table->count > 0) ? table->rows[0].count : 0;
             table_block->row_count = table->count;
             table_block->cell_count = table_block->row_count * table_block->column_count;
-            table_block->confidence = 1.0f;
             table_block->page_number = page_number;
             table_block->column_consistency = 1.0f;
             table_block->spans = NULL;

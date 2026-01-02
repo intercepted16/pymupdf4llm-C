@@ -6,14 +6,17 @@
 #include "table.h"
 #include "spatial_hash.h"
 
-// Grid detection constants
 #define MAX_COLUMNS 32
-#define SNAP_TOLERANCE 3.0
-#define JOIN_TOLERANCE 3.0
-#define INTERSECTION_TOLERANCE 1.0
-#define ROW_Y_TOLERANCE 2.0
-#define COL_X_TOLERANCE 2.0
-#define TABLE_SPLIT_GAP_THRESHOLD 50.0
+
+#define SNAP_TOLERANCE_RATIO 0.005      // 0.5% of page width
+#define JOIN_TOLERANCE_RATIO 0.005      // 0.5% of page width
+#define INTERSECTION_TOLERANCE_RATIO 0.0015  // 0.15% of page diagonal
+#define ROW_Y_TOLERANCE_RATIO 0.025     // 2.5% of page height (increased to handle varying cell alignments)
+#define COL_X_TOLERANCE_RATIO 0.003     // 0.3% of page width
+#define TABLE_SPLIT_GAP_RATIO 0.10      // 10% of page height
+#define MIN_CELL_SIZE_RATIO 0.005       // 0.5% of page dimension (min cell size)
+#define MAX_CELL_HEIGHT_RATIO 0.20      // 20% of page height (max cell height)
+#define MAX_CELL_WIDTH_RATIO 0.95       // 95% of page width (max cell width)
 
 // Optimization: scale factor for integer coordinates (1000x precision)
 #define COORD_SCALE 1000
@@ -23,8 +26,9 @@
 // Grid-based table detection functions
 void merge_edges(EdgeArray* edges, double snap_tolerance, double join_tolerance);
 void find_intersections(const EdgeArray* v_edges, const EdgeArray* h_edges, SpatialHash* hash);
-void find_cells(const PointArray* intersections, SpatialHash* hash, CellArray* cells);
-TableArray* group_cells_into_tables(const CellArray* cells);
+void find_cells(const PointArray* intersections, SpatialHash* hash, CellArray* cells, fz_rect page_rect);
+void deduplicate_cells(CellArray* cells);  // Remove overlapping/duplicate cells
+TableArray* group_cells_into_tables(const CellArray* cells, fz_rect page_rect);
 bool validate_tables(TableArray* tables, fz_rect page_rect);
 
 // Helper functions

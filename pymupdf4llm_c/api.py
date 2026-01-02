@@ -61,7 +61,6 @@ class Block(TypedDict, total=False):
     text: str
     bbox: list[float]  # [x0, y0, x1, y1]
     font_size: float
-    font_weight: str
     page_number: int
     length: int
 
@@ -73,7 +72,6 @@ class Block(TypedDict, total=False):
     # Table-specific fields
     row_count: int | None
     col_count: int | None
-    confidence: float | None
 
 
 @lru_cache(maxsize=1)
