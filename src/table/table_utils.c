@@ -14,14 +14,6 @@ void populate_table_metrics(BlockInfo* info, int row_count, int column_count, fl
     info->column_count = column_count;
     info->cell_count = row_count * column_count;
     info->column_consistency = consistency;
-    float base_score = consistency;
-    if (column_count >= 4)
-        base_score += 0.15f;
-    if (row_count >= 6)
-        base_score += 0.15f;
-    if (base_score > 1.0f)
-        base_score = 1.0f;
-    info->confidence = base_score;
 }
 
 void calculate_column_metrics(int column_count, int rows_with_content, int lines_with_multiple_columns,
@@ -43,16 +35,11 @@ void calculate_column_metrics(int column_count, int rows_with_content, int lines
         if (consistency > 1.0f)
             consistency = 1.0f;
         populate_table_metrics(info, rows_with_content, column_count, consistency);
-        if (rows_with_content > 0 && lines_with_multiple_columns < rows_with_content / 2)
-        {
-            info->confidence *= 0.75f;
-        }
     }
     else
     {
         info->row_count = effective_rows;
         info->cell_count = 0;
-        info->confidence = 0.0f;
     }
 }
 

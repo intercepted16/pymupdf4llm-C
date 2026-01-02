@@ -92,14 +92,14 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
     // Table detection: require strong evidence to avoid classifying wrapped text as tables
     // Wrapped paragraphs often have 2 columns and low consistency due to text flowing
     // Real tables have more uniform column structure and multiple rows with consistent patterns
-    if (info->column_count >= 3 && info->row_count >= 3 && info->confidence >= 0.60f)
+    if (info->column_count >= 3 && info->row_count >= 3)
     {
         info->type = BLOCK_TABLE;
         return;
     }
 
-    // For 2-column layouts, require even higher confidence (common in wrapped text)
-    if (info->column_count == 2 && info->row_count >= 4 && info->confidence >= 0.70f)
+    // For 2-column layouts, require even higher consistency (common in wrapped text)
+    if (info->column_count == 2 && info->row_count >= 4)
     {
         info->type = BLOCK_TABLE;
         return;
