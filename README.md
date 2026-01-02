@@ -233,7 +233,7 @@ pip install pymupdf4llm-c
 
 **i use uv**, you can prefix with `uv` or whatever you want.
 
-wheels for Python 3.10–3.13 on macOS (ARM/x64) and Linux (glibc > 2.11). no Windows; see [BUILD.md](BUILD.md) to compile.
+wheels for Python 3.9–3.14 (inclusive of minor versions) on macOS (ARM/x64) and all modern Linux distros > 2007. no Windows, its a pain; see [BUILD.md](BUILD.md) to compile.
 
 ---
 
