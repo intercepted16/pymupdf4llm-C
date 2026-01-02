@@ -8,7 +8,7 @@ version = "1.4.0"
 description = "C-backed PDF to structured JSON extractor."
 authors = [{ name = "Adit Bajaj" }]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = { text = "AGPL-3.0" }
 dependencies = [
     "cffi>=1.15.0",
@@ -121,8 +121,8 @@ skip_covered = false
 # Global build settings
 skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"] # explicitly skip unsupported platforms
 build = [
-    "cp3{9,10,11,12,13}-manylinux_x86_64",
-    "cp3{9,10,11,12,13}-macosx_arm64"
+    "cp3{9,10,11,12,13,14}-manylinux_x86_64",
+    "cp3{9,10,11,12,13,14}-macosx_arm64"
 ] # linux x64 and macOS arm64 only (3.9->3.13)
 
 # ---------------------------------------------------------

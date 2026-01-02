@@ -57,15 +57,18 @@ jobs:
       # 3. Build Wheels
       # ---------------------------------------------------------
       - name: Install uv
+
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Build wheels
+        env:
+          MACOSX_DEPLOYMENT_TARGET: 15.0
         run: |
           uv venv .venv
           source .venv/bin/activate
-          uv pip install cibuildwheel==2.16.2 # Bumped version
+          uv pip install cibuildwheel==3.3.0
           python -m cibuildwheel --output-dir dist
 
       - name: Upload artifacts
@@ -88,8 +91,6 @@ jobs:
           path: dist
           pattern: dist-*
           merge-multiple: true 
-          # v4 'merge-multiple' flattens the structure automatically, 
-          # removing the need for the 'find/mv' command you had previously.
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
