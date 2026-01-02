@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from contextlib import contextmanager
+import os
+import sys
 from pathlib import Path
 from typing import (
     Generator,
@@ -90,6 +93,36 @@ def _load_library(lib_path: str | Path | None):
 
     ffi = get_ffi()
     return ffi, get_lib(ffi, candidate)
+
+
+@contextmanager
+def suppress_c_stdout():
+    """Suppress stdout/stderr from C code (macOS & Linux)."""
+    orig_stdout_fd = 1  # stdout
+    orig_stderr_fd = 2  # stderr
+    saved_stdout_fd = os.dup(orig_stdout_fd)
+    saved_stderr_fd = os.dup(orig_stderr_fd)
+
+    try:
+        # Open /dev/null for writing
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+
+        # Redirect stdout and stderr to /dev/null
+        os.dup2(devnull_fd, orig_stdout_fd)
+        os.dup2(devnull_fd, orig_stderr_fd)
+        os.close(devnull_fd)
+
+        yield
+    finally:
+        # Flush Python's buffered output
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        # Restore original file descriptors
+        os.dup2(saved_stdout_fd, orig_stdout_fd)
+        os.dup2(saved_stderr_fd, orig_stderr_fd)
+        os.close(saved_stdout_fd)
+        os.close(saved_stderr_fd)
 
 
 # ---------------------------------------------------------
@@ -206,9 +239,10 @@ def to_json(
                 temp_path = tmp.name
 
             _, lib = _load_library((config or ConversionConfig()).resolve_lib_path())
-            rc = lib.pdf_to_json(
-                str(pdf_path).encode("utf-8"), temp_path.encode("utf-8")
-            )
+            with suppress_c_stdout():
+                rc = lib.pdf_to_json(
+                    str(pdf_path).encode("utf-8"), temp_path.encode("utf-8")
+                )
             if rc != 0:
                 raise RuntimeError(f"C extractor reported failure (exit code {rc})")
 
@@ -237,9 +271,10 @@ def to_json(
 
     try:
         _, lib = _load_library((config or ConversionConfig()).resolve_lib_path())
-        rc = lib.pdf_to_json(
-            str(pdf_path).encode("utf-8"), str(output_path).encode("utf-8")
-        )
+        with suppress_c_stdout():
+            rc = lib.pdf_to_json(
+                str(pdf_path).encode("utf-8"), str(output_path).encode("utf-8")
+            )
         if rc != 0:
             raise RuntimeError(f"C extractor reported failure (exit code {rc})")
     except (LibraryLoadError, RuntimeError) as exc:
