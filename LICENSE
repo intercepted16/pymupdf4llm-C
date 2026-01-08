@@ -1,3 +1,10 @@
+This library is AGPL v3.0 solely because it depends on MuPDF, which is AGPL v3.0.
+You are free to use, modify, and distribute it under AGPL terms.
+
+If you have purchased a commercial license for MuPDF from Artifex, you are automatically
+granted the right to use this library in proprietary or closed-source projects.
+
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
