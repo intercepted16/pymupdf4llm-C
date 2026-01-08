@@ -493,10 +493,13 @@ see [BUILD.md](BUILD.md).
 
 ## license
 
+TL;DR: use it all you want in OSS software. if you buy license for MUPDF from Artifex, you are excluded from all AGPL requirements.
+
 - derived work of `mupdf`.
 - inspired by `pymupdf4llm`; i have used it as a reference
 
 AGPL v3. commercial use requires license from Artifex.
+
 
 modifications and enhancements specific to this library are 2026 Adit Bajaj.
 
