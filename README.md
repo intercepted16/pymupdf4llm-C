@@ -1,211 +1,46 @@
 # PyMuPDF4LLM-C
 
-fast PDF extractor in C using MuPDF. Outputs structured JSON with layout metadata. ~300 pages/second.
+A "blazingly-fast" PDF extractor in C using MuPDF, inspired by `pymupdf4llm`. I took many of its heuristics and approach but rewrote it in C, then bound it to Python so it's easy to use.
 
-**primarily intended for use with python bindings.**
+Most extractors give you raw text (fast but useless) or *full-on* OCR/ML. This is a middle ground.
 
----
+Outputs JSON for every block: text, type, bounding box, font metrics, tables. You get the raw data to process however you need.
 
-## what this is
+**speed:** ~300 pages/second on CPU. 1 million pages in ~55 minutes.
 
-a PDF extractor in C using MuPDF, inspired by pymupdf4llm. i took many of its heuristics and approach but rewrote it in C for speed, then bound it to Python so it's easy to use.
+*AMD Ryzen 7 4800H (8 cores, 6 used), ~1600-page, table & text heavy document.*
 
-outputs JSON for every block: text, type, bounding box, font metrics, tables. you get the raw data to process however you need.
+**Capabilities/comparisons to others tools** [here](#Capabilities).
 
-speed: ~300 pages/second on CPU. 1 million pages in ~55 minutes.
-
----
-
-## the problem
-
-most extractors give you raw text (fast but useless) or over-engineered solutions (slow, opinionated, not built for what you need). you want structured data. you want to know where things are, what they are, whether they're headers or body text. and you want this fast if you're processing large volumes.
+**Primarily intended for use with Python bindings.**
 
 ---
 
-## what you get
+# Installation
 
-JSON with geometry, typography, and structure. use bounding boxes to find natural document boundaries. detect headers and footers by coordinates. reconstruct tables properly. you decide what to do with it.
-
-<details>
-<summary><b>heading with accurate coordinates and styling</b></summary>
-
-```json
-{
-  "type": "heading",
-  "bbox": [111.80, 187.53, 509.10, 217.56],
-  "font_size": 32.0,
-  "length": 25,
-  "level": 1,
-  "spans": [
-    {
-      "text": "Introduction",
-      "font_size": 32.0,
-      "bold": false,
-      "italic": false,
-      "monospace": false,
-      "strikeout": false,
-      "superscript": false,
-      "subscript": false,
-      "link": false,
-      "uri": false
-    }
-  ]
-}
+```bash
+pip install pymupdf4llm-c
 ```
-</details>
 
-<details>
-<summary><b>paragraph with mixed styling (bold, italic, links)</b></summary>
+*You can prefix this with whatever tools you use, like `uv`, `poetry`, etc.*
 
-```json
-{
-  "type": "text",
-  "bbox": [72.03, 140.5, 542.7, 200.2],
-  "font_size": 12.0,
-  "length": 189,
-  "lines": 4,
-  "spans": [
-    {
-      "text": "Cloud technology enables ",
-      "font_size": 12.0,
-      "bold": false,
-      "italic": false,
-      "monospace": false,
-      "strikeout": false,
-      "superscript": false,
-      "subscript": false,
-      "link": false,
-      "uri": false
-    },
-    {
-      "text": "multi-tenant",
-      "font_size": 12.0,
-      "bold": true,
-      "italic": true,
-      "monospace": false,
-      "strikeout": false,
-      "superscript": false,
-      "subscript": false,
-      "link": true,
-      "uri": "https://aws.amazon.com/multi-tenant"
-    },
-    {
-      "text": " services that scale efficiently across infrastructure.",
-      "font_size": 12.0,
-      "bold": false,
-      "italic": false,
-      "monospace": false,
-      "strikeout": false,
-      "superscript": false,
-      "subscript": false,
-      "link": false,
-      "uri": false
-    }
-  ]
-}
-```
-</details>
+> There are wheels for Python 3.9–3.14 (inclusive of minor versions) on macOS (ARM/x64) and all modern Linux distributions.
 
-<details>
-<summary><b>bulleted and nested list with indentation</b></summary>
-
-```json
-{
-  "type": "list",
-  "bbox": [40.44, 199.44, 240.01, 345.78],
-  "font_size": 11.04,
-  "length": 89,
-  "spans": [],
-  "items": [
-    {
-      "spans": [{"text": "Logical isolation boundaries", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
-      "list_type": "bulleted",
-      "indent": 0,
-      "prefix": false
-    },
-    {
-      "spans": [{"text": "Data center architecture", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
-      "list_type": "bulleted",
-      "indent": 1,
-      "prefix": false
-    },
-    {
-      "spans": [{"text": "Nested list item", "font_size": 11.04, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}],
-      "list_type": "bulleted",
-      "indent": 2,
-      "prefix": false
-    }
-  ]
-}
-```
-</details>
-
-<details>
-<summary><b>table with detected structure</b></summary>
-
-```json
-{
-  "type": "table",
-  "bbox": [72.0, 220.0, 523.5, 400.0],
-  "font_size": 12.0,
-  "length": 256,
-  "row_count": 3,
-  "col_count": 2,
-  "cell_count": 2,
-  "spans": [],
-  "rows": [
-    {
-      "bbox": [72.0, 220.0, 523.5, 250.0],
-      "cells": [
-        {
-          "bbox": [72.0, 220.0, 297.75, 250.0],
-          "spans": [{"text": "Feature", "font_size": 12.0, "bold": true, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
-        },
-        {
-          "bbox": [297.75, 220.0, 523.5, 250.0],
-          "spans": [{"text": "Speed (pages/sec)", "font_size": 12.0, "bold": true, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
-        }
-      ]
-    },
-    {
-      "bbox": [72.0, 250.0, 523.5, 280.0],
-      "cells": [
-        {
-          "bbox": [72.0, 250.0, 297.75, 280.0],
-          "spans": [{"text": "pymupdf4llm-C", "font_size": 12.0, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
-        },
-        {
-          "bbox": [297.75, 250.0, 523.5, 280.0],
-          "spans": [{"text": "~300", "font_size": 12.0, "bold": false, "italic": false, "monospace": false, "strikeout": false, "superscript": false, "subscript": false, "link": false, "uri": false}]
-        }
-      ]
-    }
-  ]
-}
-```
-</details>
-
-instead of splitting on word count and getting mid-sentence breaks, you use layout to chunk semantically.
-
-> note that a span represents a logical group of styling. in most blocks, it is likely that there is only one span.
-> some information in the top level JSON may be inaccurate and/or redundant. 
+**To build from source**, see [BUILD.md](BUILD.md). 
 
 ---
+# Capabilities
 
-## comparison
+| Tool          | Speed (pps) | Quality    | Tables | JSON       | Use Case                  |
+| ------------- | ----------- | ---------- | ------ | ---------- | ------------------------- |
+| pymupdf4llm-C | ~300        | Good       | Yes    | Structured | High volume, full control |
+| pymupdf4llm   | ~10         | Good       | Yes    | Markdown   | General                   |
+| pymupdf       | ~250        | Subpar     | No     | Text only  | Basic extraction          |
+| marker        | ~0.5-1      | Excellent  | Yes    | Markdown   | Maximum accuracy          |
+| docling       | ~2-5        | Excellent  | Yes    | JSON       | Document intelligence     |
+| PaddleOCR     | ~20-50      | Good (OCR) | Yes    | Text       | Scanned documents         |
 
-| Tool | Speed (pps) | Quality | Tables | JSON | Use Case |
-|------|-------------|---------|--------|------|----------|
-| pymupdf4llm-C | ~300 | Good | Yes | Structured | High volume, full control |
-| pymupdf4llm | ~10 | Good | Yes | Markdown | General |
-| pymupdf | ~250 | Subpar | No | Text only | Basic extraction |
-| marker | ~0.5-1 | Excellent | Yes | Markdown | Maximum accuracy |
-| docling | ~2-5 | Excellent | Yes | JSON | Document intelligence |
-| PaddleOCR | ~20-50 | Good (OCR) | Yes | Text | Scanned documents |
-
-tradeoff: speed and control vs automatic extraction. marker and docling give higher fidelity if you have time.
-
----
+**Trade-off:** speed and control vs automatic extraction. Marker and Docling give higher fidelity if you have time.
 
 ## what it handles well
 
@@ -215,8 +50,6 @@ tradeoff: speed and control vs automatic extraction. marker and docling give hig
 - CPU only; no expensive inference
 - iterating on parsing logic without waiting hours
 
----
-
 ## what it doesn't handle
 
 - scanned or image-heavy PDFs (no OCR)
@@ -224,25 +57,7 @@ tradeoff: speed and control vs automatic extraction. marker and docling give hig
 - figures or image extraction
 
 ---
-
-## installation
-
-```bash
-pip install pymupdf4llm-c
-```
-
-**i use uv**, you can prefix with `uv` or whatever you want.
-
-wheels for Python 3.9–3.14 (inclusive of minor versions) on macOS (ARM/x64) and all modern Linux distros > 2007. no Windows, its a pain; see [BUILD.md](BUILD.md) to compile.
-
----
-
-## usage
-
-<details>
-<summary><b>Python</b></summary>
-
----
+# Usage
 
 ### basic
 
@@ -286,21 +101,23 @@ json_files = to_json(pdf_path, output_dir="output_json")
 python -m pymupdf4llm_c.main input.pdf [output_dir]
 ```
 
-</details>
-
 ---
 
-## output structure
+## Output structure
 
-each page is a JSON array of blocks. every block has:
+Each page is a JSON array of blocks. Every block has:
 
 - `type`: block type (text, heading, paragraph, list, table, code)
 - `bbox`: [x0, y0, x1, y1] bounding box coordinates
 - `font_size`: font size in points (average for multi-span blocks)
 - `length`: character count
-- `spans`: array of styled text spans with style flags (bold, italic, monospace, etc.)
+- `spans`: array of styled text spans with style flags (bold, italic, mono-space, etc.)
 
-### block types
+> Note that a span represents a logical group of styling. in *most* blocks, it is likely that there is only one span.
+
+### Block types 
+
+> *Not real JSON; just to demonstrate output.*
 
 **text/paragraph/code blocks:**
 ```json
@@ -338,15 +155,7 @@ each page is a JSON array of blocks. every block has:
   "spans": [
     {
       "text": "Heading Text",
-      "font_size": 32.0,
-      "bold": false,
-      "italic": false,
-      "monospace": false,
-      "strikeout": false,
-      "superscript": false,
-      "subscript": false,
-      "link": false,
-      "uri": false
+      // all styling flags (as seen in the above)
     }
   ]
 }
@@ -365,15 +174,7 @@ each page is a JSON array of blocks. every block has:
       "spans": [
         {
           "text": "First item",
-          "font_size": 11.04,
-          "bold": false,
-          "italic": false,
-          "monospace": false,
-          "strikeout": false,
-          "superscript": false,
-          "subscript": false,
-          "link": false,
-          "uri": false
+		  // all styling flags.
         }
       ],
       "list_type": "bulleted",
@@ -384,15 +185,7 @@ each page is a JSON array of blocks. every block has:
       "spans": [
         {
           "text": "Second item",
-          "font_size": 11.04,
-          "bold": false,
-          "italic": false,
-          "monospace": false,
-          "strikeout": false,
-          "superscript": false,
-          "subscript": false,
-          "link": false,
-          "uri": false
+		  // all styling flags.
         }
       ],
       "list_type": "numbered",
@@ -423,15 +216,7 @@ each page is a JSON array of blocks. every block has:
           "spans": [
             {
               "text": "Header A",
-              "font_size": 12.0,
-              "bold": false,
-              "italic": false,
-              "monospace": false,
-              "strikeout": false,
-              "superscript": false,
-              "subscript": false,
-              "link": false,
-              "uri": false
+              // all styling flags.
             }
           ]
         },
@@ -440,15 +225,7 @@ each page is a JSON array of blocks. every block has:
           "spans": [
             {
               "text": "Header B",
-              "font_size": 12.0,
-              "bold": false,
-              "italic": false,
-              "monospace": false,
-              "strikeout": false,
-              "superscript": false,
-              "subscript": false,
-              "link": false,
-              "uri": false
+              // all styling flags.
             }
           ]
         }
@@ -458,7 +235,7 @@ each page is a JSON array of blocks. every block has:
 }
 ```
 
-### span fields
+### Span fields
 
 all text spans contain:
 - `text`: span content
@@ -469,7 +246,7 @@ all text spans contain:
 
 ---
 
-## faq
+# FAQ
 
 **why not marker/docling?**  
 if you have time and need maximum accuracy, use those. this is for when you're processing millions of pages or iterating on extraction logic quickly.
@@ -481,17 +258,31 @@ large y-gaps indicate topic breaks. font size changes show sections. indentation
 optimized for well-formed digital PDFs. scanned documents, complex table structures, and image-heavy layouts won't extract as well as ML tools.
 
 **commercial use?**  
-only under AGPL v3 or with a license from Artifex (MuPDF's creators). see [LICENSE](LICENSE)
+only under AGPL-v3 or with a license from Artifex (MuPDF's creators). see [LICENSE](LICENSE)
+
+**Any trade-offs due to the speed gains; you must have lost some fidelity from `pymupdf4llm`?**
+If we're talking trade-offs in comparison to PyMuPDF4LLM:
+
+Not as much as you'd think.
+
+The reason for PyMuPDF4LLM being so slow wasn't due to its quality. It was an inefficient code-base. O(n^2) algorithms, raw numbers in Python, pretty much just unoptimized code and a bad language for lots of maths.
+
+This isn't a trade-off of the project itself, but there may still be minor cases where I haven't 100% copied the heuristics.
+
+If we're talking about trade-offs in comparison to tools like Paddle, Marker & Docling:
+
+It does not do any fancy ML. It's just some basic geometric maths. Therefore it won't handle:
+
+- scanned pages; no OCR  
+- & complex tables or tables without some form of edges 
+
+**why did you build this?**
+Dumb reason. I was building a RAG project with my dad (I'm 15). He did not care about speed at all. But I just got bored of waiting for chunking the PDFs every time I made a minor change. I couldn't find anything with even 50% of the quality that would be faster. And anyway, my chunks were trash. So it was either: raw text, or ML, and I didn't want either of them.
 
 ---
+# Licensing and Links
 
-## building from source
-
-see [BUILD.md](BUILD.md).
-
----
-
-## license
+## licensing
 
 TL;DR: use it all you want in OSS software. if you buy license for MUPDF from Artifex, you are excluded from all AGPL requirements.
 
@@ -504,8 +295,6 @@ AGPL v3. commercial use requires license from Artifex.
 modifications and enhancements specific to this library are 2026 Adit Bajaj.
 
 see [LICENSE](LICENSE) for the legal stuff.
-
----
 
 ## links
 
