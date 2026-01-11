@@ -85,3 +85,5 @@ Thumbs.db
 *.a
 
 lib/
+
+test_data/

@@ -29,8 +29,6 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
     const float heading_threshold = metrics->median_font_size * 1.25f;
     const size_t text_length = info->text_chars;
 
-    // Check for list FIRST if the block has multiple lines
-    // This prevents "1. Item\n2. Item\n3. Item" from being classified as a numeric heading
     if (info->line_count > 1 && starts_with_bullet(normalized_text))
     {
         info->type = BLOCK_LIST;
@@ -61,8 +59,6 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
         heading_candidate = true;
     }
 
-    // New rule for short bold lines that might not be larger than body text
-    // common in resumes for "Achievements", "Interests", etc.
     if (!heading_candidate && info->bold_ratio >= 0.8f && text_length > 0 && text_length <= 80 && info->line_count <= 2)
     {
         heading_candidate = true;
@@ -80,6 +76,16 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
     if (heading_candidate)
     {
         info->type = BLOCK_HEADING;
+
+        if (info->avg_font_size >= 18.0f)
+            info->heading_level = 1;
+        else if (info->avg_font_size >= 14.0f)
+            info->heading_level = 2;
+        else if (info->avg_font_size >= 12.0f)
+            info->heading_level = 3;
+        else
+            info->heading_level = 4;
+
         return;
     }
 
@@ -89,21 +95,6 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
         return;
     }
 
-    // Table detection: require strong evidence to avoid classifying wrapped text as tables
-    // Wrapped paragraphs often have 2 columns and low consistency due to text flowing
-    // Real tables have more uniform column structure and multiple rows with consistent patterns
-    if (info->column_count >= 3 && info->row_count >= 3)
-    {
-        info->type = BLOCK_TABLE;
-        return;
-    }
-
-    // For 2-column layouts, require even higher consistency (common in wrapped text)
-    if (info->column_count == 2 && info->row_count >= 4)
-    {
-        info->type = BLOCK_TABLE;
-        return;
-    }
 
     if (text_length == 0)
     {
@@ -111,7 +102,6 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
         return;
     }
 
-    // Everything else defaults to paragraph
     info->type = BLOCK_PARAGRAPH;
 }
 
@@ -122,10 +112,8 @@ static bool stext_line_starts_with_bullet(fz_stext_line* line)
 
     char buf[16];
     int pos = 0;
-    // Peek at first few characters to detect bullet patterns
     for (fz_stext_char* ch = line->first_char; ch && pos < 12; ch = ch->next)
     {
-        if (ch->c == 0 || ch->c == 160) // Skip NULL and NBSP for prefix check
             continue;
         int n = fz_runetochar(buf + pos, ch->c);
         if (n > 0)
@@ -160,7 +148,6 @@ static void finalize_block_info(fz_context* ctx, BlockInfo* info, fz_rect page_b
     if (!info)
         return;
 
-    // Associate links with this block
     if (page_links)
     {
         for (fz_link* link = page_links; link; link = link->next)
@@ -183,7 +170,6 @@ static void finalize_block_info(fz_context* ctx, BlockInfo* info, fz_rect page_b
         }
     }
 
-    // Filter very narrow blocks (likely rotated margin text)
     float width = info->bbox.x1 - info->bbox.x0;
     float height = info->bbox.y1 - info->bbox.y0;
     if (width < 30.0f && height > 200.0f)
@@ -193,7 +179,6 @@ static void finalize_block_info(fz_context* ctx, BlockInfo* info, fz_rect page_b
         info->text_chars = 0;
     }
 
-    // Filter blocks in top/bottom margins
     if (is_in_margin_area(info->bbox, page_bounds, 0.08f))
     {
         if (info->text_chars > 0 && info->text_chars < 200)
@@ -216,7 +201,6 @@ static void finalize_block_info(fz_context* ctx, BlockInfo* info, fz_rect page_b
         }
     }
 
-    // Final text cleaning for paragraphs and headings
     if (info->type == BLOCK_TABLE)
     {
         free(info->text);
@@ -236,7 +220,6 @@ static void finalize_block_info(fz_context* ctx, BlockInfo* info, fz_rect page_b
                 {
                     if (info->text[i] == '-' && i + 1 < len && info->text[i + 1] == '\n')
                     {
-                        i++; // Skip hyphenated newline
                     }
                     else if (info->text[i] == '\n')
                     {
@@ -303,7 +286,6 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
 
                 if (line_is_bold)
                 {
-                    // If current sub-block is mostly non-bold, and we see a bold line, split it as a potential heading
                     float current_bold_ratio = (sub_metrics.total_chars > 0)
                                                    ? ((float)sub_metrics.bold_chars / (float)sub_metrics.total_chars)
                                                    : 0.0f;
@@ -312,9 +294,6 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
                 }
                 else if (sub_block_is_list)
                 {
-                    // If we were in a list and this line is NOT a bullet and NOT bold,
-                    // it might be a continuation of the last list item.
-                    // But if it IS bold, we already split above.
                 }
             }
 
@@ -337,6 +316,9 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
 
             float prev_x1 = NAN;
             bool line_used_columns[MAX_COLUMNS] = {0};
+            int prev_rune = 0;
+            float prev_char_size = 0.0f;
+            bool prev_was_footnote = false;
 
             for (fz_stext_char* ch = current_line->first_char; ch; ch = ch->next)
             {
@@ -357,6 +339,12 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
                 fz_rect char_box = fz_rect_from_quad(ch->quad);
                 bool is_super = is_superscript_position(char_box.y0, current_line->bbox.y0, ch->size);
                 bool is_sub = is_subscript_position(char_box.y1, current_line->bbox.y1, ch->size);
+                
+                bool is_footnote = is_footnote_reference(ch->c, ch->size, prev_char_size, prev_rune, prev_was_footnote);
+                if (!is_super && is_footnote)
+                {
+                    is_super = true;
+                }
 
                 if (is_bold)
                     sub_metrics.bold_chars++;
@@ -419,6 +407,10 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
                     if (idx >= 0)
                         line_used_columns[idx] = true;
                 }
+                
+                prev_rune = ch->c;
+                prev_char_size = ch->size;
+                prev_was_footnote = is_footnote;
             }
             int line_column_total = 0;
             for (int c = 0; c < column_count; ++c)
@@ -519,7 +511,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             fz_throw(ctx, FZ_ERROR_GENERIC, "text extraction failed");
         }
 
-        // Load page links for later association with text blocks
         page_links = fz_load_links(ctx, page);
 
         FontStats stats;
@@ -536,7 +527,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             }
         }
 
-        // Detect, process, and add tables (all handled in table.c)
         TableArray* tables = find_tables_on_page(ctx, doc, page_number, &blocks);
         if (tables)
         {
@@ -570,24 +560,19 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
         return -1;
     }
 
-    // Sort blocks by column-aware reading order
     if (blocks.count > 1)
     {
-        // Detect columns to improve reading order (e.g. for resumes)
         detect_and_assign_columns(&blocks);
         qsort(blocks.items, blocks.count, sizeof(BlockInfo), compare_block_position);
     }
 
-    // Consolidate consecutive list items into structured lists
     consolidate_lists(&blocks);
 
-    // Filter out text blocks with no visible content
     {
         size_t write_idx = 0;
         for (size_t read_idx = 0; read_idx < blocks.count; read_idx++)
         {
             BlockInfo* block = &blocks.items[read_idx];
-            // Keep blocks that have visible text content, or are non-text types (TABLE, FIGURE)
             bool is_text_type =
                 (block->type == BLOCK_PARAGRAPH || block->type == BLOCK_HEADING || block->type == BLOCK_LIST ||
                  block->type == BLOCK_CODE || block->type == BLOCK_FOOTNOTE || block->type == BLOCK_OTHER);
@@ -595,11 +580,9 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             bool keep = false;
             if (!is_text_type)
             {
-                keep = true; // Always keep TABLES, FIGURES etc (they have their own content)
             }
             else if (block->type == BLOCK_LIST)
             {
-                // For lists, check if any item has content
                 if (block->list_items)
                 {
                     for (int li = 0; li < block->list_items->count; li++)
@@ -614,7 +597,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             }
             else
             {
-                // For other text types, check the text field
                 if (has_visible_content(block->text))
                 {
                     keep = true;
@@ -623,7 +605,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
 
             if (keep)
             {
-                // Keep this block
                 if (write_idx != read_idx)
                 {
                     blocks.items[write_idx] = blocks.items[read_idx];
@@ -632,7 +613,6 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
             }
             else
             {
-                // Discard this block - free its resources
                 free_spans(block->spans);
                 free_links(block->links);
                 free(block->text);

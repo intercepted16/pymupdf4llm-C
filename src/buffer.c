@@ -101,6 +101,7 @@ int buffer_append_format(Buffer* buf, const char* fmt, ...)
     if (buffer_reserve(buf, needed) != 0)
     {
         va_end(args);
+
         return -1;
     }
     vsnprintf(buf->data + buf->length, (size_t)len + 1, fmt, args);

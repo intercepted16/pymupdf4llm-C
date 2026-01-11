@@ -107,6 +107,20 @@ char* extract_text_with_spacing(void* ctx, void* page, const void* rect);
 bool is_superscript_position(float char_y0, float line_y0, float char_size);
 
 /**
+ * @brief Check if a character is a footnote reference based on font size.
+ *
+ * Detects footnote-style superscripts where a small digit follows regular text.
+ *
+ * @param rune The current character's Unicode codepoint.
+ * @param char_size The current character's font size.
+ * @param prev_char_size The previous character's font size.
+ * @param prev_rune The previous character's Unicode codepoint.
+ * @param prev_was_footnote Whether the previous character was detected as footnote.
+ * @return true if the character appears to be a footnote reference.
+ */
+bool is_footnote_reference(int rune, float char_size, float prev_char_size, int prev_rune, bool prev_was_footnote);
+
+/**
  * @brief Check if a character is a subscript based on its position.
  *
  * @param char_y1 The bottom Y coordinate of the character.

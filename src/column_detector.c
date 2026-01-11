@@ -5,7 +5,7 @@
 
 #define MAX_COLUMNS 8
 #define PAGE_WIDTH_RESOLUTION 1000
-#define GAP_THRESHOLD 15.0f // Minimum gap width to be considered a column separator
+#define GAP_THRESHOLD 20.0f
 
 typedef struct
 {
@@ -17,7 +17,6 @@ void detect_and_assign_columns(BlockArray* blocks)
     if (!blocks || blocks->count == 0)
         return;
 
-    // 1. Determine page content bounds
     float min_x = 100000.0f, max_x = -100000.0f;
     for (size_t i = 0; i < blocks->count; i++)
     {
@@ -27,24 +26,15 @@ void detect_and_assign_columns(BlockArray* blocks)
         if (b.x1 > max_x)
             max_x = b.x1;
     }
-
     if (max_x <= min_x)
         return;
 
     float page_width = max_x - min_x;
     if (page_width < 100.0f)
-        return; // Too narrow for columns
+        return;
 
-    // 2. Build occupancy map (projection onto X axis)
-    // We use a simple boolean array representing slice of the page width
-    // Resolution: PAGE_WIDTH_RESOLUTION bins
     unsigned char occupancy[PAGE_WIDTH_RESOLUTION] = {0};
 
-    // Debug output
-    // Filter blocks for column detection (ignore headers/footers/page numbers)
-    // We assume headers/footers are at extreme Y positions, but simplest is to
-    // just ignore blocks that are extremely wide (spanning) for detection purposes.
-    // Lowered threshold to 0.6 to catch headers that don't span full width but cover potential gaps
     float spanning_threshold = page_width * 0.60f;
 
     for (size_t i = 0; i < blocks->count; i++)
@@ -52,18 +42,14 @@ void detect_and_assign_columns(BlockArray* blocks)
         BlockInfo* b = &blocks->items[i];
         float bw = b->bbox.x1 - b->bbox.x0;
 
-        // Ignore spanning blocks for column split detection
         if (bw > spanning_threshold)
         {
-            // printf("  Ignoring spanning block %zu (Width %.2f)\n", i, bw);
             continue;
         }
 
-        // Ignore very small blocks (bullets, icons)
         if (bw < 10.0f)
             continue;
 
-        // Map block X range to bins
         int idx0 = (int)((b->bbox.x0 - min_x) / page_width * (PAGE_WIDTH_RESOLUTION - 1));
         int idx1 = (int)((b->bbox.x1 - min_x) / page_width * (PAGE_WIDTH_RESOLUTION - 1));
 
@@ -78,12 +64,9 @@ void detect_and_assign_columns(BlockArray* blocks)
         }
     }
 
-    // 3. Find gaps in occupancy
-    // A gap is a sequence of 0s
     ColumnRange columns[MAX_COLUMNS];
     int col_count = 0;
 
-    // Convert gap threshold to bins
     int gap_bins = (int)(GAP_THRESHOLD / page_width * PAGE_WIDTH_RESOLUTION);
     if (gap_bins < 1)
         gap_bins = 1;
@@ -103,12 +86,8 @@ void detect_and_assign_columns(BlockArray* blocks)
         }
         else
         {
-            // We are in a gap (or margin)
             if (inside_content)
             {
-                // Ended a content block
-                // Check if this gap is real (large enough) or just small spacing
-                // Look ahead
                 int gap_len = 0;
                 while (i + gap_len < PAGE_WIDTH_RESOLUTION && !occupancy[i + gap_len])
                 {
@@ -117,7 +96,6 @@ void detect_and_assign_columns(BlockArray* blocks)
 
                 if (gap_len >= gap_bins || i + gap_len == PAGE_WIDTH_RESOLUTION)
                 {
-                    // It's a significant gap -> End of a column
                     if (col_count < MAX_COLUMNS)
                     {
                         columns[col_count].x0 = min_x + (float)content_start / PAGE_WIDTH_RESOLUTION * page_width;
@@ -125,7 +103,6 @@ void detect_and_assign_columns(BlockArray* blocks)
                         col_count++;
                     }
                     inside_content = false;
-                    i += gap_len - 1; // Advance
                 }
             }
         }
@@ -134,13 +111,11 @@ void detect_and_assign_columns(BlockArray* blocks)
     if (inside_content && col_count < MAX_COLUMNS)
     {
         columns[col_count].x0 = min_x + (float)content_start / PAGE_WIDTH_RESOLUTION * page_width;
-        columns[col_count].x1 = min_x + page_width; // End
         col_count++;
     }
 
     if (col_count <= 1)
     {
-        // No columns detected (or single column)
         for (size_t i = 0; i < blocks->count; i++)
         {
             blocks->items[i].column_index = 0;
@@ -148,10 +123,6 @@ void detect_and_assign_columns(BlockArray* blocks)
         return;
     }
 
-    // 4. Assign blocks to columns
-    // Refined logic: A block is spanning (col=0) only if it significantly overlaps
-    // MULTIPLE columns. Simple width threshold caused wide right-column blocks
-    // to be treated as spanning and sorted first.
 
     for (size_t i = 0; i < blocks->count; i++)
     {
@@ -172,7 +143,6 @@ void detect_and_assign_columns(BlockArray* blocks)
 
             if (ix1 > ix0)
             {
-                // Significant overlap? (> 10pt or > 20% of block?)
                 if (ix1 - ix0 > 10.0f)
                 {
                     overlap_count++;
@@ -183,7 +153,6 @@ void detect_and_assign_columns(BlockArray* blocks)
 
         if (overlap_count > 1)
         {
-            // Spans multiple columns -> Global flow
             b->column_index = 0;
         }
         else if (overlap_count == 1)
@@ -192,7 +161,6 @@ void detect_and_assign_columns(BlockArray* blocks)
         }
         else
         {
-            // No significant overlap (maybe in gap?). Assign to closest.
             float bx_center = (bx0 + bx1) * 0.5f;
             int best_col = 0;
             float min_dist = 100000.0f;

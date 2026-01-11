@@ -31,14 +31,15 @@ pip install pymupdf4llm-c
 ---
 # Capabilities
 
-| Tool          | Speed (pps) | Quality    | Tables | JSON       | Use Case                  |
-| ------------- | ----------- | ---------- | ------ | ---------- | ------------------------- |
-| pymupdf4llm-C | ~300        | Good       | Yes    | Structured | High volume, full control |
-| pymupdf4llm   | ~10         | Good       | Yes    | Markdown   | General                   |
-| pymupdf       | ~250        | Subpar     | No     | Text only  | Basic extraction          |
-| marker        | ~0.5-1      | Excellent  | Yes    | Markdown   | Maximum accuracy          |
-| docling       | ~2-5        | Excellent  | Yes    | JSON       | Document intelligence     |
-| PaddleOCR     | ~20-50      | Good (OCR) | Yes    | Text       | Scanned documents         |
+| Tool            | Speed (pps) | Tables | Images (Figures)                                  | OCR (Y/N)     | JSON Output      | Best For              |
+| --------------- | ----------- | ------ | ------------------------------------------------- | ------------- | ---------------- | --------------------- |
+| pymupdf4llm-C   | ~300        | Yes    | No (WIP)                                          | N             | Yes (structured) | RAG, high volume      |
+| pymupdf4llm     | ~10         | Yes    | Yes (but not ML to get contents)                  | N             | Markdown         | General extraction    |
+| pymupdf (alone) | ~250        | No     | No, not by itself, requires more effort I believe | N             | No (text only)   | basic text extraction |
+| marker          | ~0.5-1      | Yes    | Yes (contents with ML?)                           | Y (optional?) | Markdown         | Maximum fidelity      |
+| docling         | ~2-5        | Yes    | Yes                                               | Y             | JSON             | Document intelligence |
+| PaddleOCR       | ~20-50      | Yes    | Yes                                               | Y             | Text             | Scanned documents     |
+
 
 **Trade-off:** speed and control vs automatic extraction. Marker and Docling give higher fidelity if you have time.
 
@@ -64,36 +65,59 @@ pip install pymupdf4llm-c
 ```python
 from pymupdf4llm_c import to_json
 
-output_file = to_json("example.pdf")
-print(f"Extracted to: {output_file}")
+result = to_json("example.pdf", output="example.json")
+print(f"Extracted to: {result.path}")
 ```
 
-### collect in memory
+> You can omit the `output` field; it defaults to `<file>.json`
+
+### collect all pages in memory
 
 ```python
-pages = to_json("report.pdf", collect=True)
+result = to_json("report.pdf", output="report.json")
+pages = result.collect()
 
-for page_obj in pages:
-    blocks = page_obj.get("data", [])
-    for block in blocks:
-        print(f"{block.get('type')}: {block.get('text', '')}")
+# Access pages as objects with markdown conversion
+for page in pages:
+    print(page.markdown)
+    
+# Access individual blocks
+for block in pages[0]:
+    print(f"{block.type}: {block.text if hasattr(block, 'text') else ''}")
 ```
 
-### large files (streaming)
+> This still saves it to `result.path`; it just allows you to load it into memory. If you don't want to write to disk at all, consider providing a special path.
+
+> This is only for smaller PDFs. For larger ones, this may result in crashes due to loading everything into RAM. See below for a solution.
+
+### stream pages (memory-efficient)
 
 ```python
-from pymupdf4llm_c import iterate_json_pages
+result = to_json("large.pdf", output="large.json")
 
-for page_blocks in iterate_json_pages("large.pdf"):
-    for block in page_blocks:
-        print(f"Block type: {block['type']}")
+# Iterate one page at a time without loading everything
+for page in result:
+    for block in page:
+        print(f"Block type: {block.type}")
 ```
 
-### per-page files
+### convert to markdown
 
 ```python
-json_files = to_json(pdf_path, output_dir="output_json")
+result = to_json("document.pdf", output="document.json")
+pages = result.collect()
+
+# Full document as markdown
+full_markdown = pages.markdown
+
+# Single page as markdown
+page_markdown = pages[0].markdown
+
+# Single block as markdown
+block_markdown = pages[0][0].markdown
 ```
+
+> `.markdown` is a property, not a function
 
 ### command-line
 
@@ -117,7 +141,7 @@ Each page is a JSON array of blocks. Every block has:
 
 ### Block types 
 
-> *Not real JSON; just to demonstrate output.*
+> *Not real JSON; just to demonstrate output. (psuedo).*
 
 **text/paragraph/code blocks:**
 ```json

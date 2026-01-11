@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from importlib import metadata
 
-from .api import Block, ExtractionError, iterate_json_pages, to_json
+from .api import ExtractionError, to_json
+from .models import Block, Page, Pages
 from .config import ConversionConfig
 
 __all__ = [
     "Block",
+    "Page",
+    "Pages",
     "ConversionConfig",
     "ExtractionError",
-    "iterate_json_pages",
     "to_json",
     "__version__",
 ]
