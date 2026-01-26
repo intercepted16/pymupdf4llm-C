@@ -188,13 +188,11 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
     int pages_per_proc = (page_count + num_cores - 1) / num_cores;
     pid_t* pids = malloc(num_cores * sizeof(pid_t));
 
-    // mark unused slots
     for (int i = 0; i < num_cores; i++)
     {
         pids[i] = 0;
     }
 
-    // alloc. batch 4 each core
     for (int i = 0; i < num_cores; i++)
     {
         int start = i * pages_per_proc;
@@ -237,7 +235,6 @@ static int extract_document_multiprocess(const char* pdf_path, const char* outpu
     return final_status;
 }
 
-// main public func; x.pdf -> y.json
 extern EXPORT int pdf_to_json(const char* pdf_path, const char* output_file)
 {
     if (!pdf_path || !output_file)
@@ -280,10 +277,6 @@ int main(int argc, char** argv)
     {
         int start = atoi(argv[3]);
         int end = atoi(argv[4]);
-
-        // Adjust 1-based to 0-based for start, end is exclusive in loop (i < end)
-        // But user likely passes inclusive range like "50 50".
-        // Let's assume input is 1-based inclusive range.
 
         int start_idx = start - 1;
         int end_idx = end; // i < end_idx -> stops after page 'end'

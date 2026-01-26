@@ -14,18 +14,6 @@
 #include <math.h>
 #include <stdbool.h>
 
-// Helper function for sorting floats
-static int cmp_floats(const void* a, const void* b)
-{
-    float fa = *(float*)a;
-    float fb = *(float*)b;
-    if (fa < fb)
-        return -1;
-    if (fa > fb)
-        return 1;
-    return 0;
-}
-
 // Detect horizontal-divider tables: tables with only horizontal lines, no vertical grid
 // Returns a table structure with rows defined by horizontal lines and columns inferred from text
 TableArray* find_horizontal_divider_tables(const EdgeArray* h_edges, fz_context* ctx, fz_stext_page* textpage,
@@ -73,7 +61,7 @@ TableArray* find_horizontal_divider_tables(const EdgeArray* h_edges, fz_context*
     fprintf(stderr, "  Horizontal-divider: Found %d row boundaries\n", row_count);
 
     // Sort row positions
-    qsort(row_y_positions, row_count, sizeof(float), cmp_floats);
+    qsort(row_y_positions, row_count, sizeof(float), compare_float_asc);
 
     // Get the bounding box of the table from the horizontal edges
     float table_x0 = 1e9, table_x1 = -1e9;
@@ -163,7 +151,7 @@ TableArray* find_horizontal_divider_tables(const EdgeArray* h_edges, fz_context*
     fprintf(stderr, "  Horizontal-divider: Detected %d columns\n", column_count);
 
     // Sort column positions
-    qsort(column_x_positions, column_count, sizeof(float), cmp_floats);
+    qsort(column_x_positions, column_count, sizeof(float), compare_float_asc);
 
     // Build table structure with rows and columns
     TableArray* tables = malloc(sizeof(TableArray));

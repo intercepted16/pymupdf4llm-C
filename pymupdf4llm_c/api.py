@@ -24,7 +24,6 @@ class LibraryLoadError(RuntimeError):
     """Raised when the shared library cannot be located or loaded."""
 
 
-
 @lru_cache(maxsize=1)
 def _load_library(lib_path: str | Path | None):
     """Load and cache the shared library."""
@@ -64,7 +63,6 @@ def _suppress_c_stdout():
         os.close(saved_stderr)
 
 
-
 class ConversionResult:
     """Result of PDF to JSON conversion. Use `.collect()` or iterate."""
 
@@ -98,11 +96,10 @@ class ConversionResult:
             raise ValueError(f"Invalid JSON in {self._path}: {exc}") from exc
 
         for page in pages:
-                yield Page(page["data"])
+            yield Page(page["data"])
 
     def __repr__(self) -> str:
         return f"ConversionResult(path={self._path})"
-
 
 
 def to_json(
@@ -123,13 +120,11 @@ def to_json(
 
     Example:
         >>> result = to_json("document.pdf")
-        >>> 
         >>> # Load everything into memory
         >>> pages = result.collect()
         >>> pages.markdown  # Full document as markdown
         >>> pages[0].markdown  # First page as markdown
         >>> pages[0][0].markdown  # First block as markdown
-        >>> 
         >>> # Stream pages (memory-efficient)
         >>> for page in result:
         ...     print(page.markdown)
@@ -138,7 +133,11 @@ def to_json(
     if not pdf_path.exists():
         raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
 
-    output_path = Path(output).absolute().resolve() if output else pdf_path.with_suffix(".json").absolute().resolve()
+    output_path = (
+        Path(output).absolute().resolve()
+        if output
+        else pdf_path.with_suffix(".json").absolute().resolve()
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
