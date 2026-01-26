@@ -16,18 +16,6 @@
 
 DEFINE_ARRAY_METHODS_PUBLIC(Edge, Edge, edge)
 
-// Helper function for sorting floats
-static int cmp_floats(const void* a, const void* b)
-{
-    float fa = *(float*)a;
-    float fb = *(float*)b;
-    if (fa < fb)
-        return -1;
-    if (fa > fb)
-        return 1;
-    return 0;
-}
-
 // Helper: Detect if page has columnar (sidebar) layout
 // Returns true if text is naturally organized in columns without grid lines
 static bool has_columnar_layout(fz_context* ctx, fz_page* page)
@@ -78,7 +66,7 @@ static bool has_columnar_layout(fz_context* ctx, fz_page* page)
     }
 
     // Sort line start positions
-    qsort(x_starts, start_count, sizeof(float), cmp_floats);
+    qsort(x_starts, start_count, sizeof(float), compare_float_asc);
 
     float page_width = page_max_x - page_min_x;
     float min_gap_for_column = page_width * 0.1f; // At least 10% of page width

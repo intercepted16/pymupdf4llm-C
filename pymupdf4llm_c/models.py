@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
@@ -50,7 +50,7 @@ class Block(BaseModel):
     bbox: BBox
     spans: list[Span] = []
     length: int = 0
-    
+
     # Optional fields for specific block types
     lines: Optional[int] = None
     level: Optional[int] = None
@@ -63,15 +63,19 @@ class Block(BaseModel):
     def markdown(self) -> str:
         """Convert this block to markdown format (cached)."""
         from ._block_converter import block_to_markdown
+
         return block_to_markdown(self.model_dump())
 
 
 class Page(list[Block]):
     """A single page: a list of Block objects with a `.markdown` property."""
 
-    def __init__(self, items: list[Block | dict]):
+    def __init__(self, items: list[Block | dict[str, Any]] | dict[str, Any]):
         super().__init__()
-        if items:
+        if isinstance(items, dict) and "data" in items:
+            items = items["data"]
+
+        if items and isinstance(items, list):
             for item in items:
                 if isinstance(item, dict):
                     self.append(Block(**item))

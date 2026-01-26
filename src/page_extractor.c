@@ -95,7 +95,6 @@ static void classify_block(BlockInfo* info, const PageMetrics* metrics, const ch
         return;
     }
 
-
     if (text_length == 0)
     {
         info->type = BLOCK_OTHER;
@@ -114,7 +113,6 @@ static bool stext_line_starts_with_bullet(fz_stext_line* line)
     int pos = 0;
     for (fz_stext_char* ch = line->first_char; ch && pos < 12; ch = ch->next)
     {
-            continue;
         int n = fz_runetochar(buf + pos, ch->c);
         if (n > 0)
             pos += n;
@@ -339,7 +337,7 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
                 fz_rect char_box = fz_rect_from_quad(ch->quad);
                 bool is_super = is_superscript_position(char_box.y0, current_line->bbox.y0, ch->size);
                 bool is_sub = is_subscript_position(char_box.y1, current_line->bbox.y1, ch->size);
-                
+
                 bool is_footnote = is_footnote_reference(ch->c, ch->size, prev_char_size, prev_rune, prev_was_footnote);
                 if (!is_super && is_footnote)
                 {
@@ -407,7 +405,7 @@ static void process_text_block(fz_context* ctx, fz_stext_block* block, const Pag
                     if (idx >= 0)
                         line_used_columns[idx] = true;
                 }
-                
+
                 prev_rune = ch->c;
                 prev_char_size = ch->size;
                 prev_was_footnote = is_footnote;
@@ -578,10 +576,7 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                  block->type == BLOCK_CODE || block->type == BLOCK_FOOTNOTE || block->type == BLOCK_OTHER);
 
             bool keep = false;
-            if (!is_text_type)
-            {
-            }
-            else if (block->type == BLOCK_LIST)
+            if (block->type == BLOCK_LIST)
             {
                 if (block->list_items)
                 {
@@ -595,7 +590,7 @@ int extract_page_blocks(fz_context* ctx, fz_document* doc, int page_number, cons
                     }
                 }
             }
-            else
+            else if (is_text_type)
             {
                 if (has_visible_content(block->text))
                 {

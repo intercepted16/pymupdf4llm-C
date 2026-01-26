@@ -187,6 +187,14 @@ bool starts_with_numeric_heading(const char* text)
 
 bool is_bullet_rune(int rune)
 {
+    if (rune == 0x2022 || rune == 0x2023 || rune == 0x2043 || rune == 0x204C || rune == 0x204D || rune == 0x2219 ||
+        rune == 0x25AA || rune == 0x25AB || rune == 0x25CF || rune == 0x25CB || rune == 0x25E6 || rune == 0x25A0 ||
+        rune == 0x25A1 || rune == 0x25B6 || rune == 0x25B8 || rune == 0x25C6 || rune == 0x25C7 || rune == 0x2666 ||
+        rune == 0x27A4 || rune == 0xF0B7 || rune == 0xB7 || rune == 8226 || rune == 183)
+    {
+        return true;
+    }
+    return false;
 }
 
 bool starts_with_bullet(const char* text)
@@ -305,31 +313,33 @@ bool starts_with_number(const char* text, char** out_prefix)
 
 bool is_superscript_position(float char_y0, float line_y0, float char_size)
 {
-    float threshold = char_size * 0.3f;
+    float threshold = char_size * 0.15f;
+    return char_y0 < (line_y0 - threshold);
 }
 
 bool is_footnote_reference(int rune, float char_size, float prev_char_size, int prev_rune, bool prev_was_footnote)
 {
-    
+
     if (rune < '0' || rune > '9')
         return false;
-    
+
     if (prev_was_footnote && prev_rune >= '0' && prev_rune <= '9')
         return true;
-    
-    if (prev_rune == 0 || prev_rune == ' ' || prev_rune == '\t' || prev_rune == '\n' ||
-        prev_rune == '(' || prev_rune == '[' || prev_rune == '$' || prev_rune == '#')
+
+    if (prev_rune == 0 || prev_rune == ' ' || prev_rune == '\t' || prev_rune == '\n' || prev_rune == '(' ||
+        prev_rune == '[' || prev_rune == '$' || prev_rune == '#')
         return false;
-    
+
     if (prev_char_size > 0 && char_size < prev_char_size * 0.80f)
         return true;
-    
+
     return false;
 }
 
 bool is_subscript_position(float char_y1, float line_y1, float char_size)
 {
-    float threshold = char_size * 0.3f;
+    float threshold = char_size * 0.15f;
+    return char_y1 > (line_y1 + threshold);
 }
 
 const char* font_weight_from_ratio(float ratio)
@@ -408,7 +418,6 @@ char* extract_text_with_spacing(void* ctx_ptr, void* page_ptr, const void* rect_
                     float y_tolerance = ch->size * 0.3f;
                     if (y_tolerance < 2.0f)
                         y_tolerance = 2.0f;
-
 
                     int is_punct_or_digit =
                         (ch->c == '.' || ch->c == ',' || ch->c == '$' || ch->c == '%' || ch->c == ':' || ch->c == ';' ||

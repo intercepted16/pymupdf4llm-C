@@ -243,7 +243,7 @@ void merge_edges(EdgeArray* edges, double snap_tolerance, double join_tolerance)
         }
 
         // Apply snapped position to all edges in cluster
-        double snapped_pos = INT_TO_COORD(pos_sum / cluster_count); // NOLINT
+        double snapped_pos = INT_TO_COORD(pos_sum / cluster_count);
 
         // Join edges within this cluster
         Edge joined = edges->items[cluster_start];
