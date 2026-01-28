@@ -12,10 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest,
-         macos-latest
-        ]
-         # ci build wheel handles versions internally
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.11"]
 
     steps:
@@ -23,41 +20,20 @@ jobs:
         with:
           submodules: false
 
+      - name: Sparse checkout mupdf headers
+        run: |
+          git submodule init mupdf
+          cd mupdf
+          git config core.sparseCheckout true
+          git sparse-checkout init --cone
+          git sparse-checkout set include
+          cd ..
+
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      # ---------------------------------------------------------
-      # 1. Handle MuPDF Headers (Sparse Checkout)
-      # ---------------------------------------------------------
-      - name: Cache MuPDF Headers
-        id: cache-headers
-        uses: actions/cache@v4
-        with:
-          path: mupdf/include
-          key: mupdf-headers-v1
-
-      - name: Sparse clone MuPDF include
-        if: steps.cache-headers.outputs.cache-hit != 'true'
-        run: |
-          # if folder exists, don't clone again
-          if [ -d "mupdf/include" ]; then
-            echo "MuPDF headers already present, skipping clone."
-            exit 0
-          fi
-          # Removed mkdir to prevent git clone failure
-          git clone --filter=blob:none --sparse --depth 1 https://github.com/ArtifexSoftware/mupdf.git mupdf
-          cd mupdf
-          git sparse-checkout set include
-          cd ..
-
-      # Note: MuPDF shared libraries are downloaded inside the cibuildwheel
-      # container via before-all hooks in pyproject.toml to avoid auditwheel issues.
-      # ---------------------------------------------------------
-      # 3. Build Wheels
-      # ---------------------------------------------------------
       - name: Install uv
-
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -90,7 +66,7 @@ jobs:
         with:
           path: dist
           pattern: dist-*
-          merge-multiple: true 
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
