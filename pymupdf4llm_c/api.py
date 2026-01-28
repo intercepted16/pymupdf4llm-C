@@ -14,6 +14,10 @@ from ._lib import get_default_library_path
 from .config import ConversionConfig
 from .models import Block, Page, Pages
 from typing import Any
+import tempfile
+
+
+CAPTURE_FILE = tempfile.NamedTemporaryFile(mode="w+", delete=False).name
 
 
 class ExtractionError(RuntimeError):
@@ -47,13 +51,13 @@ def _suppress_c_stdout():
     """Suppress stdout/stderr from C code."""
     saved_stdout = os.dup(1)
     saved_stderr = os.dup(2)
+    capture_fd = os.open(CAPTURE_FILE, os.O_WRONLY | os.O_TRUNC)
 
     try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        os.close(devnull)
-        yield
+        os.dup2(capture_fd, 1)
+        os.dup2(capture_fd, 2)
+        os.close(capture_fd)
+        yield CAPTURE_FILE
     finally:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -142,13 +146,23 @@ def to_json(
 
     try:
         _, lib = _load_library((config or ConversionConfig()).resolve_lib_path())
-        with _suppress_c_stdout():
+        with _suppress_c_stdout() as capture_file:
             rc = lib.pdf_to_json(
                 str(pdf_path).encode("utf-8"),
                 str(output_path).encode("utf-8"),
             )
+
         if rc != 0:
+            try:
+                with open(capture_file, "r") as f:
+                    c_output = f.read()
+                if c_output:
+                    print("C extractor output:\n", c_output, file=sys.stderr)
+            except Exception:
+                pass
+
             raise RuntimeError(f"C extractor failed (exit code {rc})")
+
     except (LibraryLoadError, RuntimeError) as exc:
         raise ExtractionError(str(exc)) from exc
 
