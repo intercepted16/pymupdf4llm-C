@@ -1,180 +1,110 @@
-"""Public facing API helpers for the MuPDF JSON extractor."""
+"""public api for pdf to json extraction."""
 
 from __future__ import annotations
-
-from functools import lru_cache
-from contextlib import contextmanager
 import json
+import logging
 import os
 import sys
-from pathlib import Path
-
-from ._cffi import get_ffi, get_lib
-from ._lib import get_default_library_path
-from .config import ConversionConfig
-from .models import Block, Page, Pages
-from typing import Any
 import tempfile
+from contextlib import contextmanager
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Iterator
+
+from ._cffi import find_library, load_library
+from .models import Page, Pages
+
+log = logging.getLogger(__name__)
+_CAPTURE = tempfile.NamedTemporaryFile(mode="w+", delete=False).name
 
 
-CAPTURE_FILE = tempfile.NamedTemporaryFile(mode="w+", delete=False).name
-
-
-class ExtractionError(RuntimeError):
-    """Raised when the extraction pipeline reports a failure."""
-
-
-class LibraryLoadError(RuntimeError):
-    """Raised when the shared library cannot be located or loaded."""
-
-
-@lru_cache(maxsize=1)
-def _load_library(lib_path: str | Path | None):
-    """Load and cache the shared library."""
-    candidate = Path(lib_path).resolve() if lib_path else None
-    if not candidate:
-        if default := get_default_library_path():
-            candidate = Path(default).resolve()
-
-    if not candidate or not candidate.exists():
-        raise LibraryLoadError(
-            "C library not found. Build it with 'make tomd' or set "
-            "PYMUPDF4LLM_C_LIB to the compiled shared object."
-        )
-
-    ffi = get_ffi()
-    return ffi, get_lib(ffi, candidate)
+class ExtractionError(Exception):
+    """raised when pdf extraction fails."""
 
 
 @contextmanager
-def _suppress_c_stdout():
-    """Suppress stdout/stderr from C code."""
-    saved_stdout = os.dup(1)
-    saved_stderr = os.dup(2)
-    capture_fd = os.open(CAPTURE_FILE, os.O_WRONLY | os.O_TRUNC)
-
+def _redirect_c_output() -> Iterator[str]:
+    saved = os.dup(1), os.dup(2)
+    fd = os.open(_CAPTURE, os.O_WRONLY | os.O_TRUNC)
     try:
-        os.dup2(capture_fd, 1)
-        os.dup2(capture_fd, 2)
-        os.close(capture_fd)
-        yield CAPTURE_FILE
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.close(fd)
+        yield _CAPTURE
     finally:
         sys.stdout.flush()
         sys.stderr.flush()
-        os.dup2(saved_stdout, 1)
-        os.dup2(saved_stderr, 2)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        os.close(saved[0])
+        os.close(saved[1])
+
+
+@lru_cache(maxsize=1)
+def _lib(path: Path | None = None):
+    p = path or find_library()
+    if not p or not p.exists():
+        raise ExtractionError(
+            "libtomd not found - build with 'make tomd' or set PYMUPDF4LLM_C_LIB"
+        )
+    log.info("using library: %s", p)
+    return load_library(p)
 
 
 class ConversionResult:
-    """Result of PDF to JSON conversion. Use `.collect()` or iterate."""
+    """lazy pdf conversion result."""
 
     def __init__(self, path: Path):
-        self._path = path
+        self.path = path
+        log.debug("result at %s", path)
 
-    @property
-    def path(self) -> Path:
-        """Path to the output JSON file."""
-        return self._path
+    def _load(self) -> list[dict[str, Any]]:
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)
 
     def collect(self) -> Pages:
-        """Load all pages into memory as a Pages object."""
-        try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                data: list[dict[str, Any]] = json.load(f)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid JSON in {self._path}: {exc}") from exc
-
-        pages = Pages([])
-        for page in data:
-            pages.append(Page(page["data"]))
+        pages = Pages([Page(p["data"]) for p in self._load()])
+        log.info("collected %d pages", len(pages))
         return pages
 
-    def __iter__(self):
-        """Iterate over pages one at a time (memory-efficient)."""
-        try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                pages: list[dict[str, Any]] = json.load(f)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid JSON in {self._path}: {exc}") from exc
-
-        for page in pages:
-            yield Page(page["data"])
+    def __iter__(self) -> Iterator[Page]:
+        for i, p in enumerate(self._load()):
+            log.debug("page %d", i + 1)
+            yield Page(p["data"])
 
     def __repr__(self) -> str:
-        return f"ConversionResult(path={self._path})"
+        return f"ConversionResult({self.path})"
 
 
 def to_json(
     pdf_path: str | Path,
-    *,
     output: str | Path | None = None,
-    config: ConversionConfig | None = None,
+    *,
+    lib_path: Path | None = None,
 ) -> ConversionResult:
-    """Extract PDF to JSON.
+    """extract pdf to json."""
+    pdf = Path(pdf_path).resolve()
+    if not pdf.exists():
+        raise FileNotFoundError(f"pdf not found: {pdf}")
 
-    Args:
-        pdf_path: Path to input PDF file.
-        output: Path for output JSON file. Defaults to pdf_path with .json extension.
-        config: Conversion configuration.
+    out = Path(output).resolve() if output else pdf.with_suffix(".json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    log.info("extracting %s -> %s", pdf, out)
 
-    Returns:
-        ConversionResult: Use `.collect()` for all pages or iterate for streaming.
+    with _redirect_c_output() as cap:
+        rc = _lib(lib_path).pdf_to_json(str(pdf).encode(), str(out).encode())
 
-    Example:
-        >>> result = to_json("document.pdf")
-        >>> # Load everything into memory
-        >>> pages = result.collect()
-        >>> pages.markdown  # Full document as markdown
-        >>> pages[0].markdown  # First page as markdown
-        >>> pages[0][0].markdown  # First block as markdown
-        >>> # Stream pages (memory-efficient)
-        >>> for page in result:
-        ...     print(page.markdown)
-    """
-    pdf_path = Path(pdf_path).absolute().resolve()
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
+    if rc != 0:
+        try:
+            with open(cap) as f:
+                if msg := f.read().strip():
+                    log.error("c output:\n%s", msg)
+        except OSError:
+            pass
+        raise ExtractionError(f"extraction failed (code {rc})")
 
-    output_path = (
-        Path(output).absolute().resolve()
-        if output
-        else pdf_path.with_suffix(".json").absolute().resolve()
-    )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        _, lib = _load_library((config or ConversionConfig()).resolve_lib_path())
-        with _suppress_c_stdout() as capture_file:
-            rc = lib.pdf_to_json(
-                str(pdf_path).encode("utf-8"),
-                str(output_path).encode("utf-8"),
-            )
-
-        if rc != 0:
-            try:
-                with open(capture_file, "r") as f:
-                    c_output = f.read()
-                if c_output:
-                    print("C extractor output:\n", c_output, file=sys.stderr)
-            except Exception:
-                pass
-
-            raise RuntimeError(f"C extractor failed (exit code {rc})")
-
-    except (LibraryLoadError, RuntimeError) as exc:
-        raise ExtractionError(str(exc)) from exc
-
-    return ConversionResult(output_path)
+    log.info("done")
+    return ConversionResult(out)
 
 
-__all__ = [
-    "ExtractionError",
-    "LibraryLoadError",
-    "to_json",
-    "ConversionResult",
-    "Block",
-    "Page",
-    "Pages",
-]
+__all__ = ["ExtractionError", "to_json", "ConversionResult"]

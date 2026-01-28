@@ -11,14 +11,14 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "AGPL-3.0" }
 dependencies = [
-    "cffi>=1.15.0",
+    "cffi",
+    "pydantic"
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "ruff>=0.1.0",
-    "build>=1.0.0",
+    "ruff",
+    "build",
 ]
 
 [project.urls]
@@ -31,26 +31,19 @@ pymupdf4llm-c = "pymupdf4llm_c.main:main"
 
 
 [tool.scikit-build]
-
 minimum-version = "0.8"
-
-
 build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake]
-
 args = ["-DMUPDF_LIB_DIR=mupdf"]
 
 [tool.scikit-build.wheel]
-
 expand-macos-universal-tags = true
 
 [tool.scikit-build.install]
-
 components = []
 
 [tool.scikit-build.metadata]
-
 version.provider = "scikit_build_core.metadata.regex"
 version.input = "pymupdf4llm_c/__init__.py"
 

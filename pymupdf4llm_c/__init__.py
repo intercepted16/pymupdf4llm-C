@@ -1,24 +1,23 @@
-"""Top-level package for the MuPDF JSON extraction bindings."""
+"""mupdf json extraction bindings."""
 
 from __future__ import annotations
-
+import logging
 from importlib import metadata
-
-from .api import ExtractionError, to_json
+from .api import ExtractionError, to_json, ConversionResult
 from .models import Block, Page, Pages
-from .config import ConversionConfig
 
 __all__ = [
     "Block",
     "Page",
     "Pages",
-    "ConversionConfig",
     "ExtractionError",
     "to_json",
+    "ConversionResult",
     "__version__",
 ]
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-try:  # pragma: no cover - metadata only available when installed
+try:
     __version__ = metadata.version("pymupdf4llm-c")
-except metadata.PackageNotFoundError:  # pragma: no cover - fallback for local dev
-    __version__ = "1.0.0"
+except metadata.PackageNotFoundError:
+    __version__ = "0.0.0"
