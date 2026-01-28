@@ -1,8 +1,6 @@
 name: Build MuPDF Native Libraries
-
 on:
   workflow_dispatch:
-    # STEP 1: Add an 'inputs' block to create the dropdown
     inputs:
       platform:
         type: choice
@@ -15,97 +13,165 @@ on:
           - macos-intel
           - macos-arm
 
+env:
+  MUPDF_VERSION: "1.25.0"
+  MUPDF_BRANCH: "1.25.0"
+
 jobs:
   build-linux:
-    name: Build MuPDF (manylinux2014)
-    # STEP 2: Add an 'if' condition to the job
+    name: Build MuPDF (Linux x86_64)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build MuPDF inside manylinux2014 container
+      - name: Build MuPDF in manylinux2014
         run: |
+          rm -rfd ./mupdf/
           docker run --rm \
             -v ${{ github.workspace }}:/work \
             -w /work \
-            quay.io/pypa/manylinux2014_x86_64 \
+            quay.io/pypa/manylinux_2_28_x86_64 \
             bash -c "
               set -e
-              yum install -y git harfbuzz-devel freetype-devel libjpeg-turbo-devel \
-                               openjpeg2-devel libpng-devel bzip2-devel zlib-devel \
-                               libcurl-devel openssl-devel cmake3
-              ln -s /usr/bin/cmake3 /usr/bin/cmake || true
+              yum install -y git ccache harfbuzz-devel freetype-devel libjpeg-turbo-devel \
+                openjpeg2-devel libpng-devel bzip2-devel zlib-devel
 
-              git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
-              
+              rm -rfd ./mupdf/
+            
+              git clone --depth 1 --branch ${{ env.MUPDF_BRANCH }} \
+                --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+
               cd mupdf
-              make shared=yes build=release libs
+              CC='ccache gcc' make -j\$(nproc) shared=yes build=release libs
+              
+              mkdir -p /work/mupdf-artifacts
+              cp build/shared-release/libmupdf.so* /work/mupdf-artifacts/ || true
             "
 
-      - name: Upload native libraries (Linux)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mupdf-native-Linux-x86_64
-          path: mupdf/build/shared-release/*.so*
+          name: mupdf-linux-x86_64
+          path: mupdf-artifacts/*.so*
+          if-no-files-found: error
 
   build-macos-intel:
-    name: Build MuPDF (macOS, Intel)
-    # STEP 2: Add an 'if' condition to the job
+    name: Build MuPDF (macOS Intel x86_64)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos-intel'
     runs-on: macos-12
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Cache Homebrew dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-macos-intel-${{ runner.os }}
+          restore-keys: brew-macos-intel-
+
+      - name: Install dependencies
+        run: |
+          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl lcms2-mt ccache
 
       - name: Clone MuPDF
-        run: git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
-
-      - name: Install dependencies (macOS)
         run: |
-          brew update
-          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+          if [ ! -d "mupdf" ]; then
+              git clone --depth 1 --branch ${{ env.MUPDF_BRANCH }} \
+                --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+          fi
 
-      - name: Build MuPDF (macOS, Intel)
+      - name: Build MuPDF
         run: |
           cd mupdf
-          make shared=yes build=release libs
+          CC='ccache clang' make -j$(sysctl -n hw.ncpu) shared=yes build=release libs
 
-      - name: Upload native libraries (macOS, Intel)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mupdf-native-macOS-x86_64
+          name: mupdf-macos-x86_64
           path: mupdf/build/shared-release/*.dylib*
+          if-no-files-found: error
 
   build-macos-arm:
-    name: Build MuPDF (macOS, Apple Silicon)
-    # STEP 2: Add an 'if' condition to the job
+    name: Build MuPDF (macOS Apple Silicon arm64)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos-arm'
     runs-on: macos-latest
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Cache Homebrew dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-macos-arm-${{ runner.os }}
+          restore-keys: brew-macos-arm-
+
+      - name: Install dependencies
+        run: |
+          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl lcms2-mt ccache
 
       - name: Clone MuPDF
-        run: git clone --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
-
-      - name: Install dependencies (macOS)
         run: |
-          brew update
-          brew install cmake harfbuzz freetype libjpeg libpng bzip2 zlib curl openssl
+          if [ ! -d "mupdf" ]; then
+              git clone --depth 1 --branch ${{ env.MUPDF_BRANCH }} \
+                --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git
+          fi
 
-      - name: Build MuPDF (macOS, Apple Silicon)
+      - name: Build MuPDF
         run: |
           cd mupdf
-          make shared=yes build=release libs
+          CC='ccache clang' make -j$(sysctl -n hw.ncpu) shared=yes build=release libs
 
-      - name: Upload native libraries (macOS, Apple Silicon)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mupdf-native-macOS-arm64
+          name: mupdf-macos-arm64
           path: mupdf/build/shared-release/*.dylib*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GitHub Release
+    needs: [build-linux, build-macos-intel, build-macos-arm]
+    runs-on: ubuntu-latest
+    if: always() && (needs.build-linux.result == 'success' || needs.build-macos-intel.result == 'success' || needs.build-macos-arm.result == 'success')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize artifacts
+        run: |
+          mkdir -p release
+          cp artifacts/mupdf-linux-x86_64/* release/ 2>/dev/null || true
+          cp artifacts/mupdf-macos-x86_64/* release/ 2>/dev/null || true
+          cp artifacts/mupdf-macos-arm64/* release/ 2>/dev/null || true
+          
+          echo "Files to release:"
+          ls -lh release/
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: mupdf-${{ env.MUPDF_VERSION }}
+          files: release/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          body: |
+            Pre-built MuPDF ${{ env.MUPDF_VERSION }} native libraries
+            
+            **Included:**
+            - Linux x86_64 (manylinux2014)
+            - macOS x86_64 (Intel)
+            - macOS arm64 (Apple Silicon)
+            
+            Download and use in your builds.

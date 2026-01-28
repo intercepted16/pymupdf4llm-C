@@ -16,7 +16,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # --- Compiler flags ---
-set(RELEASE_FLAGS "-Wall -Wextra -O3 -march=native -mtune=native -ffast-math -funroll-loops -finline-functions -ftree-vectorize -fno-signed-zeros -fno-trapping-math -fassociative-math -freciprocal-math")
+# Note: Removed -ffast-math and related flags that break NaN/infinity handling
+# The code legitimately uses NAN values for initialization
+set(RELEASE_FLAGS "-Wall -Wextra -O3 -march=native -mtune=native -funroll-loops -finline-functions -ftree-vectorize")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${RELEASE_FLAGS}")
 
 # Debug flags (profiling-friendly)

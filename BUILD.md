@@ -1,6 +1,6 @@
-# Building PyMuPDF4LLM-C
+# Building
 
-This project depends on **MuPDF**. The key requirement is the **MuPDF shared library**. Once that’s in place, Python and Rust bindings are handled automatically.
+This project depends on **MuPDF**. That's pretty much the only thing you've got to worry about.
 
 ---
 
@@ -27,7 +27,7 @@ After building, copy the generated libraries into your project’s `lib/mupdf` d
 
 ```
 libmupdf.so
-libmupdf.so.27.0
+libmupdf.so.25.0
 ```
 or
 ```
@@ -43,14 +43,19 @@ libmupdf.dll
 
 ### Option B: Use precompiled shared libraries
 
-You can also download the precompiled MuPDF 1.27.0 shared libraries:
+You can also download the precompiled MuPDF 1.25.0 shared libraries from the GitHub releases:
 
-* [libmupdf.so](https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so)
-* [libmupdf.so.27.0](https://hc-cdn.hel1.your-objectstorage.com/s/v3/f43060643d2cefdcb0ed114ec165bff60ecb2bf4_libmupdf.so.27.0)
-* [libmupdf.dylib](https://hc-cdn.hel1.your-objectstorage.com/s/v3/754b5dd360d3996af4d6a69e28c1dbee19b20518_libmupdf.dylib)
-* libmupdf.dll (not currently provided)
+**Linux (x86_64):**
+* [libmupdf.so](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.so)
+* [libmupdf.so.25.0](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.so.25.0)
 
-> **Note:** Precompiled libraries are provided for convenience, as MuPDF 1.27.0 shared libraries are not readily available elsewhere.
+**macOS (Universal):**
+* [libmupdf.dylib](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.dylib)
+
+**Windows:**
+* Not provided.
+
+> **Note:** These precompiled libraries are automatically built by the [Build MuPDF Native Libraries workflow](https://github.com/intercepted16/pymupdf4llm-C/blob/main/.github/workflows/buildwinmac.yml) and published to [GitHub Releases](https://github.com/intercepted16/pymupdf4llm-C/releases). They are used automatically by `cibuildwheel` when building Python wheels.
 
 ---
 
@@ -81,20 +86,8 @@ pip install .
 
 ---
 
-## 4. Rust Installation
-
-For Rust, the `build.rs` script handles linking automatically:
-
-```bash
-cargo build
-```
-
-* Ensure the shared library is in `lib/mupdf` or discoverable via `LD_LIBRARY_PATH`.
-
----
-
 ## Notes
 
 * The **shared library (`libmupdf.so`) is the only critical dependency**.
-* Python and Rust builds are automated once the shared library exists.
+* Python builds are automated once the shared library exists.
 * If you modify MuPDF or `libtomd` source code, rebuild with `cmake .. && make`.
