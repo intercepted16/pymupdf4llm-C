@@ -29,28 +29,28 @@ Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 [project.scripts]
 pymupdf4llm-c = "pymupdf4llm_c.main:main"
 
-# Scikit-build-core configuration
+
 [tool.scikit-build]
-# Minimum required version
+
 minimum-version = "0.8"
 
-# Build directory
+
 build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake]
-# CMake arguments
+
 args = ["-DMUPDF_LIB_DIR=mupdf"]
 
 [tool.scikit-build.wheel]
-# Explicitly set wheel build tag for proper platform naming
+
 expand-macos-universal-tags = true
 
 [tool.scikit-build.install]
-# Install configuration - install all components
+
 components = []
 
 [tool.scikit-build.metadata]
-# Metadata configuration - use static version from project table
+
 version.provider = "scikit_build_core.metadata.regex"
 version.input = "pymupdf4llm_c/__init__.py"
 
@@ -59,7 +59,7 @@ mode = "redirect"
 verbose = true
 
 [tool.scikit-build.sdist]
-# Source distribution includes
+
 include = [
     "include/**/*.h",
     "src/**/*.c",
@@ -118,37 +118,34 @@ show_missing = true
 skip_covered = false
 
 [tool.cibuildwheel]
-# Global build settings
-skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"] # explicitly skip unsupported platforms
+
+skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"]
 build = [
     "cp3{9,10,11,12,13,14}-manylinux_x86_64",
     "cp3{9,10,11,12,13,14}-macosx_arm64"
-] # linux x64 and macOS arm64 only (3.9->3.13)
+]
 
-# ---------------------------------------------------------
-# Linux Specifics
-# ---------------------------------------------------------
+
+
+
 [tool.cibuildwheel.linux]
-environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf" }
+environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf:$LD_LIBRARY_PATH" }
 before-all = [
     "mkdir -p lib/mupdf",
     "curl -L -o lib/mupdf/libmupdf.so https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so",
     "curl -L -o lib/mupdf/libmupdf.so.27.0 https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so.27.0",
     "chmod +x lib/mupdf/*.so*"
 ]
-repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+repair-wheel-command = "auditwheel repair -w {dest_dir} --plat manylinux_2_28_x86_64 {wheel}"
 
-# ---------------------------------------------------------
-# macOS Specifics
-# ---------------------------------------------------------
+
 [tool.cibuildwheel.macos]
+environment = { DYLD_LIBRARY_PATH = "$PWD/lib/mupdf:$DYLD_LIBRARY_PATH" }
 before-all = [
     "mkdir -p lib/mupdf",
     "curl -L -o lib/mupdf/libmupdf.dylib https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.dylib",
     "chmod +x lib/mupdf/*.dylib*"
 ]
-# We must override the repair command to inject the library path.
 repair-wheel-command = """
-DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-listdeps {wheel} && \
 DYLD_LIBRARY_PATH=$PWD/lib/mupdf delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
 """

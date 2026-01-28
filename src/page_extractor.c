@@ -20,6 +20,8 @@
 #include "serialize.h"
 
 #define MAX_COLUMNS 32
+#define FZ_STEXT_COLLECT_STYLES                                                                                        \
+    32768 // i have no idea why apparently this isn't defined but, oh well. this is copied from mupdf source code.
 
 static void classify_block(BlockInfo* info, const PageMetrics* metrics, const char* normalized_text)
 {

@@ -16,50 +16,25 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # --- Compiler flags ---
-# Note: Removed -ffast-math and related flags that break NaN/infinity handling
-# The code legitimately uses NAN values for initialization
 set(RELEASE_FLAGS "-Wall -Wextra -O3 -march=native -mtune=native -funroll-loops -finline-functions -ftree-vectorize")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${RELEASE_FLAGS}")
 
-# Debug flags (profiling-friendly)
 set(DEBUG_FLAGS "-Wall -Wextra -O0 -g -fno-omit-frame-pointer")
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${DEBUG_FLAGS}")
 
 # --- Project root ---
 set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 
-# --- MuPDF submodule ---
-set(MUPDF_DIR ${PROJECT_ROOT}/mupdf)
-include_directories(BEFORE ${MUPDF_DIR}/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+# --- MuPDF headers (pinned submodule) ---
+set(MUPDF_INCLUDE ${PROJECT_ROOT}/mupdf/include)
 
-# --- MuPDF library search ---
-set(MUPDF_LIB_SEARCH_PATHS
-    ${CMAKE_SOURCE_DIR}/lib/mupdf
-    ${CMAKE_SOURCE_DIR}/mupdf
-    ${MUPDF_DIR}
-)
-
-if(APPLE)
-    set(MUPDF_LIB_NAME libmupdf.dylib)
-elseif(WIN32)
-    set(MUPDF_LIB_NAME mupdf.dll)
-else()
-    set(MUPDF_LIB_NAME libmupdf.so)
-endif()
-
-set(MUPDF_LIBS "")
-foreach(search_path ${MUPDF_LIB_SEARCH_PATHS})
-    if(EXISTS "${search_path}/${MUPDF_LIB_NAME}")
-        set(MUPDF_LIBS "${search_path}/${MUPDF_LIB_NAME}")
-        message(STATUS "Found MuPDF library: ${MUPDF_LIBS}")
-        break()
-    endif()
-endforeach()
-
+# --- MuPDF library (vendored) ---
+file(GLOB MUPDF_LIBS "${PROJECT_ROOT}/lib/mupdf/libmupdf.so*")
 if(NOT MUPDF_LIBS)
-    message(FATAL_ERROR "MuPDF library not found! Searched in: ${MUPDF_LIB_SEARCH_PATHS}")
+    message(FATAL_ERROR "MuPDF library not found in ${PROJECT_ROOT}/lib/mupdf")
 endif()
+list(GET MUPDF_LIBS 0 MUPDF_LIBS)
+message(STATUS "Using MuPDF library: ${MUPDF_LIBS}")
 
 # --- Source files ---
 set(APP_SOURCES
@@ -80,11 +55,12 @@ set(APP_SOURCES
     src/table/table_horizontal.c
     src/table/table_utils.c
 )
-set(LIBS m)  # Math library
+set(LIBS m)  # math library
 
 # --- Shared library for Python ---
 add_library(tomd SHARED ${APP_SOURCES})
 target_compile_definitions(tomd PRIVATE NOLIB_MAIN)
+target_include_directories(tomd PRIVATE ${MUPDF_INCLUDE} ${PROJECT_ROOT}/include)
 target_link_libraries(tomd PRIVATE ${MUPDF_LIBS} ${LIBS})
 set_target_properties(tomd PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -92,24 +68,22 @@ set_target_properties(tomd PROPERTIES
     BUILD_RPATH "$ORIGIN"
 )
 
-# Copy MuPDF libs next to tomd (Unix)
+# Copy MuPDF next to tomd
 if(UNIX AND NOT APPLE)
-    get_filename_component(MUPDF_DIR_PATH "${MUPDF_LIBS}" DIRECTORY)
-    file(GLOB MUPDF_SHARED_LIBS "${MUPDF_DIR_PATH}/libmupdf.so.*.*") # only get versioned shared libs
-    foreach(lib ${MUPDF_SHARED_LIBS})
-        add_custom_command(TARGET tomd POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${lib}
-                    $<TARGET_FILE_DIR:tomd>
-            COMMENT "Copying ${lib} next to tomd"
-        )
-    endforeach()
+    add_custom_command(TARGET tomd POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${MUPDF_LIBS}
+                $<TARGET_FILE_DIR:tomd>
+        COMMENT "Copying MuPDF library next to tomd"
+    )
 endif()
 
 # --- Optional CLI executable ---
 option(BUILD_CLI "Build standalone to_md executable" ON)
 if(BUILD_CLI)
     add_executable(to_md ${APP_SOURCES})
+    target_compile_definitions(to_md PRIVATE NOLIB_MAIN)
+    target_include_directories(to_md PRIVATE ${MUPDF_INCLUDE} ${PROJECT_ROOT}/include)
     target_link_libraries(to_md PRIVATE ${MUPDF_LIBS} ${LIBS})
     set_target_properties(to_md PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
@@ -118,14 +92,12 @@ if(BUILD_CLI)
     )
 
     if(UNIX AND NOT APPLE)
-        foreach(lib ${MUPDF_SHARED_LIBS})
-            add_custom_command(TARGET to_md POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        ${lib}
-                        $<TARGET_FILE_DIR:to_md>
-                COMMENT "Copying ${lib} next to to_md"
-            )
-        endforeach()
+        add_custom_command(TARGET to_md POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${MUPDF_LIBS}
+                    $<TARGET_FILE_DIR:to_md>
+            COMMENT "Copying MuPDF library next to to_md"
+        )
     endif()
 endif()
 
@@ -135,16 +107,13 @@ if(SKBUILD)
         LIBRARY DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
         RUNTIME DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
     )
-
-    if(MUPDF_SHARED_LIBS)
-        install(FILES ${MUPDF_SHARED_LIBS}
-            DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib
-        )
-    endif()
+    install(FILES ${MUPDF_LIBS} DESTINATION ${SKBUILD_PLATLIB_DIR}/pymupdf4llm_c/lib)
 else()
     install(TARGETS tomd DESTINATION lib)
+    install(FILES ${MUPDF_LIBS} DESTINATION lib)
 endif()
 
 if(BUILD_CLI)
     install(TARGETS to_md DESTINATION bin)
 endif()
+
