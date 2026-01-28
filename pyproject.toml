@@ -34,6 +34,8 @@ pymupdf4llm-c = "pymupdf4llm_c.main:main"
 minimum-version = "0.8"
 build-dir = "build/{wheel_tag}"
 
+
+
 [tool.scikit-build.cmake]
 args = ["-DMUPDF_LIB_DIR=mupdf"]
 
@@ -51,30 +53,19 @@ version.input = "pymupdf4llm_c/__init__.py"
 mode = "redirect"
 verbose = true
 
-[tool.scikit-build.sdist]
 
+[tool.scikit-build.sdist]
 include = [
+    "CMakeLists.txt",
     "include/**/*.h",
     "src/**/*.c",
+    "src/**/*.h",
     "mupdf/include/**/*.h",
     "mupdf/*.so*",
     "mupdf/*.dylib",
     "lib/mupdf/*.so*",
     "lib/mupdf/*.dylib",
-]
-
-exclude = [
-    "mupdf/thirdparty/**/*",
-    "mupdf/source/**/*",
-    "mupdf/resources/**/*",
-    "mupdf/scripts/**/*",
-    "mupdf/docs/**/*",
-    "build/**/*",
-    "dist/**/*",
-    "*.egg-info/**/*",
-    ".git/**/*",
-    "**/__pycache__/**/*",
-    "**/*.pyc",
+    "pymupdf4llm_c/**/*.py",
 ]
 
 [tool.pytest.ini_options]
@@ -111,7 +102,6 @@ show_missing = true
 skip_covered = false
 
 [tool.cibuildwheel]
-
 skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"]
 build = [
     "cp3{9,10,11,12,13,14}-manylinux_x86_64",

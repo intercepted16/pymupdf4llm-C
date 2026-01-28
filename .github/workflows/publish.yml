@@ -20,12 +20,19 @@ jobs:
         with:
           submodules: false
 
-      - name: Sparse checkout mupdf headers
+      - name: Cache MuPDF Headers
+        id: cache-headers
+        uses: actions/cache@v4
+        with:
+          path: mupdf/include
+          key: mupdf-headers-1.27.0
+
+      - name: Sparse clone MuPDF headers
+        if: steps.cache-headers.outputs.cache-hit != 'true'
         run: |
-          git submodule init mupdf
+          rm -rf mupdf
+          git clone --filter=blob:none --sparse --depth 1 --branch 1.27.0 https://github.com/ArtifexSoftware/mupdf.git mupdf
           cd mupdf
-          git config core.sparseCheckout true
-          git sparse-checkout init --cone
           git sparse-checkout set include
           cd ..
 
