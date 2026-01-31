@@ -175,8 +175,9 @@ func init() {
 }
 
 func main() {
-	if (len(os.Args) < 3) {
+	if len(os.Args) < 3 {
 		fmt.Println("Usage: ./program <input.pdf> [output_json]")
+		os.Exit(1)
 	}
-	pdfToJson(os.Args[1], os.Args[2]);
+	pdfToJson(os.Args[1], os.Args[2])
 }
