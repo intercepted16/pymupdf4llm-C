@@ -35,7 +35,7 @@ pip install pymupdf4llm-c
 
 | Tool            | Speed (pps) | Tables | Images (Figures)                                  | OCR (Y/N)     | JSON Output      | Best For              |
 | --------------- | ----------- | ------ | ------------------------------------------------- | ------------- | ---------------- | --------------------- |
-| pymupdf4llm-C   | ~300        | Yes    | No (WIP)                                          | N             | Yes (structured) | RAG, high volume      |
+| pymupdf4llm-C   | ~520        | Yes    | No (WIP)                                          | N             | Yes (structured) | RAG, high volume      |
 | pymupdf4llm     | ~10         | Yes    | Yes (but not ML to get contents)                  | N             | Markdown         | General extraction    |
 | pymupdf (alone) | ~250        | No     | No, not by itself, requires more effort I believe | N             | No (text only)   | basic text extraction |
 | marker          | ~0.5-1      | Yes    | Yes (contents with ML?)                           | Y (optional?) | Markdown         | Maximum fidelity      |
