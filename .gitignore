@@ -86,4 +86,6 @@ Thumbs.db
 
 lib/
 
-test_data/
+dev/
+
+.uv-cache/

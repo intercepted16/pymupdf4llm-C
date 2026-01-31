@@ -1,6 +1,6 @@
 [build-system]
-requires = ["scikit-build-core>=0.8.0", "ninja"]
-build-backend = "scikit_build_core.build"
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymupdf4llm-c"
@@ -9,7 +9,7 @@ description = "C-backed PDF to structured JSON extractor."
 authors = [{ name = "Adit Bajaj" }]
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "AGPL-3.0" }
+license = "AGPL-3.0"
 dependencies = [
     "cffi",
     "pydantic"
@@ -29,80 +29,8 @@ Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 [project.scripts]
 pymupdf4llm-c = "pymupdf4llm_c.main:main"
 
-
-[tool.scikit-build]
-minimum-version = "0.8"
-build-dir = "build/{wheel_tag}"
-
-
-
-[tool.scikit-build.cmake]
-args = ["-DMUPDF_LIB_DIR=mupdf"]
-
-[tool.scikit-build.wheel]
-expand-macos-universal-tags = true
-
-[tool.scikit-build.install]
-components = []
-
-[tool.scikit-build.metadata]
-version.provider = "scikit_build_core.metadata.regex"
-version.input = "pymupdf4llm_c/__init__.py"
-
-[tool.scikit-build.editable]
-mode = "redirect"
-verbose = true
-
-
-[tool.scikit-build.sdist]
-include = [
-    "CMakeLists.txt",
-    "include/**/*.h",
-    "src/**/*.c",
-    "src/**/*.h",
-    "mupdf/include/**/*.h",
-    "mupdf/*.so*",
-    "mupdf/*.dylib",
-    "lib/mupdf/*.so*",
-    "lib/mupdf/*.dylib",
-    "pymupdf4llm_c/**/*.py",
-]
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "-v",
-    "--strict-markers",
-    "--tb=short",
-    "--disable-warnings",
-]
-markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "slow: Slow running tests",
-    "requires_pdf: Tests that require PDF files",
-    "smoke: Basic smoke tests",
-]
-
-[tool.coverage.run]
-source = ["pymupdf4llm_c"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__pycache__/*",
-]
-
-[tool.coverage.report]
-precision = 2
-show_missing = true
-skip_covered = false
-
 [tool.cibuildwheel]
-skip = ["pp*", "*-musllinux*", "*i686*", "*aarch64*"]
+skip = ["*-musllinux*", "*i686*", "*aarch64*"]
 build = [
     "cp3{9,10,11,12,13,14}-manylinux_x86_64",
     "cp3{9,10,11,12,13,14}-macosx_arm64"
@@ -112,8 +40,12 @@ build = [
 
 
 [tool.cibuildwheel.linux]
-environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf:$LD_LIBRARY_PATH" }
+environment = { LD_LIBRARY_PATH = "$PWD/lib/mupdf:$LD_LIBRARY_PATH", PATH = "/usr/local/go/bin:$PATH" }
 before-all = [
+    "yum install -y wget tar || (apt-get update && apt-get install -y wget)",
+    "wget -q https://go.dev/dl/go1.21.0.linux-amd64.tar.gz",
+    "tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz",
+    "/usr/local/go/bin/go version",
     "mkdir -p lib/mupdf",
     "curl -L -o lib/mupdf/libmupdf.so https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so",
     "curl -L -o lib/mupdf/libmupdf.so.27.0 https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so.27.0",
@@ -125,6 +57,8 @@ repair-wheel-command = "auditwheel repair -w {dest_dir} --plat manylinux_2_28_x8
 [tool.cibuildwheel.macos]
 environment = { DYLD_LIBRARY_PATH = "$PWD/lib/mupdf:$DYLD_LIBRARY_PATH" }
 before-all = [
+    "which go || brew install go@1.21 || true",
+    "go version",
     "mkdir -p lib/mupdf",
     "curl -L -o lib/mupdf/libmupdf.dylib https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.dylib",
     "chmod +x lib/mupdf/*.dylib*"
