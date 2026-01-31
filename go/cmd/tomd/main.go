@@ -7,6 +7,7 @@ import "C"
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,14 +15,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unsafe"
-	"fmt"
 	"time"
+	"unsafe"
 
 	"github.com/pymupdf4llm-c/go/internal/bridge"
 	"github.com/pymupdf4llm-c/go/internal/extractor"
 	"github.com/pymupdf4llm-c/go/internal/logger"
-
 )
 
 var (
@@ -36,29 +35,27 @@ func pdf_to_json(pdf_path *C.char, output_file *C.char) C.int {
 	if err == nil {
 		return 0
 	}
-	return -1;
+	return -1
 }
 
 func pdfToJson(pdfPath, outputPath string) error {
-	startTotal := time.Now()      // total runtime timer
-	startRaw := time.Now()        // raw data timer
+	startTotal := time.Now() // total runtime timer
+	startRaw := time.Now()   // raw data timer
 
 	Logger.Info("beginning conversion...")
-	Logger.Debug("paths: pdf=%s output=%s", pdfPath, outputPath)
+	Logger.Debug("paths", "pdf", pdfPath, "output", outputPath)
 
-	
 	tempRawDir, err := bridge.ExtractAllPagesRaw(pdfPath)
 	rawElapsed := time.Since(startRaw) // record raw extraction time
 	if err != nil {
-		Logger.Error("extraction error: %v", err)
+		Logger.Error("extraction error", "err", err)
 		return err
 	}
 	defer os.RemoveAll(tempRawDir)
 
-	
 	entries, err := os.ReadDir(tempRawDir)
 	if err != nil {
-		Logger.Error("readdir error: %v", err)
+		Logger.Error("readdir error", "err", err)
 		return err
 	}
 	var pageFiles []string
@@ -96,7 +93,7 @@ func pdfToJson(pdfPath, outputPath string) error {
 					continue
 				}
 				results[idx] = pageResult{pageNum: page.Number, json: pageJSON}
-				Logger.Debug("processed page %d", page.Number)
+				Logger.Debug("processed page", "page", page.Number)
 			}
 		}()
 	}
@@ -109,15 +106,14 @@ func pdfToJson(pdfPath, outputPath string) error {
 
 	for _, res := range results {
 		if res.err != nil {
-			Logger.Error("processing error: %v", res.err)
+			Logger.Error("processing error", "err", res.err)
 			return res.err
 		}
 	}
 
-	
 	outFile, err := os.Create(outputPath)
 	if err != nil {
-		Logger.Error("output file error: %v", err)
+		Logger.Error("output file error", "err", err)
 		return err
 	}
 	defer outFile.Close()
@@ -126,28 +122,27 @@ func pdfToJson(pdfPath, outputPath string) error {
 	defer writer.Flush()
 
 	if _, err := writer.WriteString("["); err != nil {
-		Logger.Error("write error: %v", err)
+		Logger.Error("write error", "err", err)
 		return err
 	}
 	for i, res := range results {
 		if i > 0 {
 			if _, err := writer.WriteString(","); err != nil {
-				Logger.Error("write error: %v", err)
+				Logger.Error("write error", "err", err)
 				return err
 			}
 		}
 		if _, err := writer.Write(res.json); err != nil {
-			Logger.Error("write error: %v", err)
+			Logger.Error("write error", "err", err)
 			return err
 		}
-		Logger.Debug("wrote page %d", res.pageNum)
+		Logger.Debug("wrote page", "page", res.pageNum)
 	}
 	if _, err := writer.WriteString("]"); err != nil {
-		Logger.Error("write error: %v", err)
+		Logger.Error("write error", "err", err)
 		return err
 	}
 
-	
 	totalElapsed := time.Since(startTotal)
 	Logger.Info("raw data extraction", "timeInC", rawElapsed)
 	Logger.Info("high level data extraction", "timeInGo", (totalElapsed - rawElapsed))
@@ -156,6 +151,7 @@ func pdfToJson(pdfPath, outputPath string) error {
 	Logger.Info("success")
 	return nil
 }
+
 //export free_string
 func free_string(s *C.char) { C.free(unsafe.Pointer(s)) }
 
