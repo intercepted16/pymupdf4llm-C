@@ -1,14 +1,16 @@
 # PyMuPDF4LLM-C
 
-A "blazingly-fast" PDF extractor in C using MuPDF, inspired by `pymupdf4llm`. I took many of its heuristics and approach but rewrote it in C, then bound it to Python so it's easy to use.
+> This projects C extension has now been rewritten in Go. Performance, quality, and code quality have all improved. However, the Python-API remains the same.
+
+A "blazingly-fast" (oh wait, this isn't in Rust..) PDF extractor **for Python** written in Go using MuPDF in the backend, inspired by `pymupdf4llm`. I took many of its heuristics and approaches. Initially, it was supposed to be a 1:1 port (just generating the same Markdown output), but I later pivoted.
 
 Most extractors give you raw text (fast but useless) or *full-on* OCR/ML. This is a middle ground.
 
 Outputs JSON for every block: text, type, bounding box, font metrics, tables. You get the raw data to process however you need.
 
-**speed:** ~300 pages/second on CPU. 1 million pages in ~55 minutes.
+**Speed (averaged):** ~520 pages/second on CPU. 1 million pages in ~32 minutes.
 
-*AMD Ryzen 7 4800H (8 cores, 6 used), ~1600-page, table & text heavy document.*
+**Full performance breakdown** [here](#Performance_Breakdown)
 
 **Capabilities/comparisons to others tools** [here](#Capabilities).
 
@@ -141,7 +143,7 @@ Each page is a JSON array of blocks. Every block has:
 
 ### Block types 
 
-> *Not real JSON; just to demonstrate output. (psuedo).*
+> *Not real JSON; just to demonstrate output. (pseudo).*
 
 **text/paragraph/code blocks:**
 ```json
@@ -302,6 +304,28 @@ It does not do any fancy ML. It's just some basic geometric maths. Therefore it 
 
 **why did you build this?**
 Dumb reason. I was building a RAG project with my dad (I'm 15). He did not care about speed at all. But I just got bored of waiting for chunking the PDFs every time I made a minor change. I couldn't find anything with even 50% of the quality that would be faster. And anyway, my chunks were trash. So it was either: raw text, or ML, and I didn't want either of them.
+
+---
+# Performance Breakdown
+
+Using `go/cmd/tomd/main.go` with `input_pdf [output_dir]`, I measured performance on:
+
+- ~1600 page document (path not available)
+- ~150 page document (`test_data/pdfs/nist.pdf`)
+
+> Performance depends on document size and available cores. With more pages to saturate your cores, you may see better throughput. Wall-clock time should scale approximately linearly with core count.
+
+**Test system:** AMD Ryzen 7 4800H (8 cores, 6 used)
+
+**Runtime breakdown:**
+- Go code: ~25% of runtime
+- MuPDF: ~75% of runtime
+
+On the NIST document (150 pages): Go spent 78ms out of 363ms total (21%), MuPDF spent 285ms (79%).
+
+**Calculated average:**
+- 1600 pages in 3000ms + 150 pages in 350ms = 1750 pages in 3350ms
+- **~520 pages/second**
 
 ---
 # Licensing and Links

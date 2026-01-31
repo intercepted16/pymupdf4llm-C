@@ -14,7 +14,7 @@ If you cloned the repository without recursive submodules:
 
 ```bash
 git submodule update --init --recursive
-````
+```
 
 Then navigate to the `mupdf` submodule and build the shared library:
 
@@ -27,7 +27,7 @@ After building, copy the generated libraries into your project’s `lib/mupdf` d
 
 ```
 libmupdf.so
-libmupdf.so.25.0
+libmupdf.so.27.0
 ```
 or
 ```
@@ -43,46 +43,46 @@ libmupdf.dll
 
 ### Option B: Use precompiled shared libraries
 
-You can also download the precompiled MuPDF 1.25.0 shared libraries from the GitHub releases:
+You can also download the precompiled MuPDF 1.27.0 shared libraries from the GitHub releases:
 
 **Linux (x86_64):**
-* [libmupdf.so](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.so)
-* [libmupdf.so.25.0](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.so.25.0)
+* [libmupdf.so](https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so)
+* [libmupdf.so.27.0](https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.so.27.0)
 
 **macOS (Universal):**
-* [libmupdf.dylib](https://github.com/intercepted16/pymupdf4llm-C/releases/download/mupdf-1.25.0/libmupdf.dylib)
+* [libmupdf.dylib](https://github.com/intercepted16/mupdf-prebuilts/releases/download/mupdf-1.27.0/libmupdf.dylib)
 
 **Windows:**
 * Not provided.
 
-> **Note:** These precompiled libraries are automatically built by the [Build MuPDF Native Libraries workflow](https://github.com/intercepted16/pymupdf4llm-C/blob/main/.github/workflows/buildwinmac.yml) and published to [GitHub Releases](https://github.com/intercepted16/pymupdf4llm-C/releases). They are used automatically by `cibuildwheel` when building Python wheels.
+> **Note:** These precompiled libraries are automatically built by [MuPDF prebuilts](https://github.com/intercepted16/mupdf-prebuilts) and published to [GitHub Releases](https://github.com/intercepted16/mupdf-prebuilts/releases). They are used automatically by `cibuildwheel` when building Python wheels.
 
 ---
 
-## 2. Build the Native C Extractor (Optional)
+## 2. Use the Go CLI
 
-If you want the standalone C library (`libtomd`):
+In `go/cmd/tomd/main.go`, there is a basic cli, that can be used via:
 
 ```bash
-cd build
-cmake ..
-make
+go run cmd/tomd <pdf_path> [output_json]
 ```
 
-* This produces `libtomd.so` and other artifacts.
-* This step is optional if you only need Python or Rust bindings.
+You could also manually build the Go shared library if you want to use that in any other language.
+I won't go into detail here, however.
 
 ---
 
 ## 3. Python Installation
 
-Once `libmupdf.so` is in `lib/mupdf`, install the Python package:
+Once `libmupdf.so` and `libmupdf.so.27.0` is in `lib/mupdf`, install the Python package:
 
 ```bash
 pip install .
 ```
 
-* `setup.py` automatically links against `libmupdf.so`.
+> This can be prefixed with anything, for example, I like to use `uv`.
+
+* `setup.py` automatically links against the shared libraries.
 
 ---
 
@@ -90,4 +90,3 @@ pip install .
 
 * The **shared library (`libmupdf.so`) is the only critical dependency**.
 * Python builds are automated once the shared library exists.
-* If you modify MuPDF or `libtomd` source code, rebuild with `cmake .. && make`.

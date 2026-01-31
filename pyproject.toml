@@ -29,39 +29,6 @@ Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 [project.scripts]
 pymupdf4llm-c = "pymupdf4llm_c.main:main"
 
-[tool.pytest.ini_options]
-minversion = "6.0"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "-v",
-    "--strict-markers",
-    "--tb=short",
-    "--disable-warnings",
-]
-markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "slow: Slow running tests",
-    "requires_pdf: Tests that require PDF files",
-    "smoke: Basic smoke tests",
-]
-
-[tool.coverage.run]
-source = ["pymupdf4llm_c"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-    "*/__pycache__/*",
-]
-
-[tool.coverage.report]
-precision = 2
-show_missing = true
-skip_covered = false
-
 [tool.cibuildwheel]
 skip = ["*-musllinux*", "*i686*", "*aarch64*"]
 build = [
