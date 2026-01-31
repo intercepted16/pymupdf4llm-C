@@ -57,28 +57,31 @@ type Span struct {
 }
 
 func (s Span) MarshalJSON() ([]byte, error) {
-	var formats []string
-	if s.Style.Bold {
-		formats = append(formats, "bold")
-	}
-	if s.Style.Italic {
-		formats = append(formats, "italic")
-	}
-	if s.Style.Monospace {
-		formats = append(formats, "monospace")
-	}
-	if formats == nil {
-		formats = []string{}
-	}
-	uri := any(false)
+	link := any(false)
 	if s.URI != "" {
-		uri = s.URI
+		link = s.URI
 	}
 	return json.Marshal(struct {
-		Text    string   `json:"text"`
-		Formats []string `json:"formats"`
-		URI     any      `json:"uri"`
-	}{s.Text, formats, uri})
+		Text        string  `json:"text"`
+		FontSize    float32 `json:"font_size"`
+		Bold        bool    `json:"bold"`
+		Italic      bool    `json:"italic"`
+		Monospace   bool    `json:"monospace"`
+		Strikeout   bool    `json:"strikeout"`
+		Superscript bool    `json:"superscript"`
+		Subscript   bool    `json:"subscript"`
+		Link        any     `json:"link"`
+	}{
+		Text:        s.Text,
+		FontSize:    0,
+		Bold:        s.Style.Bold,
+		Italic:      s.Style.Italic,
+		Monospace:   s.Style.Monospace,
+		Strikeout:   false,
+		Superscript: false,
+		Subscript:   false,
+		Link:        link,
+	})
 }
 
 type ListItem struct {
