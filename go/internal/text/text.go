@@ -100,15 +100,16 @@ func IsAllCaps(text string) bool {
 var headingKeywords = []string{"appendix", "chapter", "section", "heading", "article", "part"}
 
 func StartsWithHeadingKeyword(text string) bool {
-	lower := strings.ToLower(strings.TrimLeft(text, " "))
+	trimmed := strings.TrimLeft(text, " ")
+	lower := strings.ToLower(trimmed)
 	for _, kw := range headingKeywords {
 		if !strings.HasPrefix(lower, kw) {
 			continue
 		}
-		if len(text) == len(kw) {
+		if len(trimmed) == len(kw) {
 			return true
 		}
-		if next := rune(text[len(kw)]); unicode.IsSpace(next) || next == ':' || next == '-' {
+		if next := rune(trimmed[len(kw)]); unicode.IsSpace(next) || next == ':' || next == '-' {
 			return true
 		}
 	}
