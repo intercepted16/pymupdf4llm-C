@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymupdf4llm-c"
-version = "1.6.4"
+version = "2.0.0"
 description = "C-backed PDF to structured JSON extractor."
 authors = [{ name = "Adit Bajaj" }]
 readme = "README.md"
