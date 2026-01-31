@@ -174,7 +174,7 @@ func TestExtractTablesFromLargeDoc(t *testing.T) {
 		t.Skip("skipping large doc test in short mode")
 	}
 
-	pages := loadTestPDFPages(t, "NIST.SP.800-53r5.pdf")
+	pages := loadTestPDFPages(t, "nist.pdf")
 
 	var totalTables, totalCells int
 	for _, raw := range pages {

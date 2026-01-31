@@ -25,7 +25,11 @@ func extractTestPDF(t *testing.T, pdfName string) []models.Page {
 	if err != nil {
 		t.Fatalf("extraction failed: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("warning: failed to cleanup temp dir %s: %v", tempDir, err)
+		}
+	})
 
 	files, err := os.ReadDir(tempDir)
 	if err != nil {
@@ -177,7 +181,7 @@ func TestExtractFormatting(t *testing.T) {
 }
 
 func TestExtractLargeDocument(t *testing.T) {
-	pages := extractTestPDF(t, "NIST.SP.800-53r5.pdf")
+	pages := extractTestPDF(t, "nist.pdf")
 
 	if len(pages) < 100 {
 		t.Errorf("expected many pages, got %d", len(pages))

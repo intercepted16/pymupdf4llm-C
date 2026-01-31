@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"path/filepath"
 )
 
 var rootLogger *slog.Logger
+
+var tempDir = os.TempDir()
 
 const (
 	colorReset  = "\033[0m"
@@ -21,9 +24,23 @@ const (
 )
 
 func init() {
-	file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	var fileHandler *customHandler
+
+	logPath := filepath.Join(tempDir, "pymupdf4llm_c.log")
+	
+	fmt.Printf("writing all logs to: %s\n", logPath)
+
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		panic(err)
+
+		fmt.Fprintf(os.Stderr, "%s[logger warning]%s Could not open app.log for writing: %v. Logging to stdout only.\n", colorYellow, colorReset, err)
+	} else {
+		fileHandler = &customHandler{
+			w:          file,
+			level:      slog.LevelDebug,
+			withColors: false,
+		}
+
 	}
 
 	var stdoutLevel slog.Level
@@ -35,29 +52,29 @@ func init() {
 		stdoutLevel = slog.LevelInfo
 	}
 
-	// File handler with no colors
-	fileHandler := &customHandler{
-		w:          file,
-		level:      slog.LevelDebug,
-		withColors: false,
-	}
-
-	// Stdout handler with colors
 	colorHandler := &customHandler{
 		w:          os.Stdout,
 		level:      stdoutLevel,
 		withColors: true,
 	}
 
-	multiHandler := &multiHandler{
-		file:   fileHandler,
-		stdout: colorHandler,
+	var mh multiHandler
+	if fileHandler != nil {
+		mh = multiHandler{
+			file:   fileHandler,
+			stdout: colorHandler,
+		}
+	} else {
+
+		mh = multiHandler{
+			file:   nil,
+			stdout: colorHandler,
+		}
 	}
 
-	rootLogger = slog.New(multiHandler)
+	rootLogger = slog.New(&mh)
 }
 
-// GetLogger returns a logger with the given prefix for easier filtering
 func GetLogger(prefix string) *slog.Logger {
 	return rootLogger.With("module", prefix)
 }
@@ -99,12 +116,10 @@ func (h *customHandler) Handle(_ context.Context, record slog.Record) error {
 
 	timeStr := record.Time.Format("15:04:05")
 
-	// Extract module prefix and other args from stored attrs first
 	var modulePrefix string
 	var argsStr string
 	hasOtherAttrs := false
 
-	// Process stored attributes
 	for _, a := range h.attrs {
 		if a.Key == "module" {
 			modulePrefix = fmt.Sprintf("%v", a.Value)
@@ -119,7 +134,6 @@ func (h *customHandler) Handle(_ context.Context, record slog.Record) error {
 		}
 	}
 
-	// Process record attributes
 	record.Attrs(func(a slog.Attr) bool {
 		if a.Key == "module" {
 			modulePrefix = fmt.Sprintf("%v", a.Value)
@@ -139,7 +153,6 @@ func (h *customHandler) Handle(_ context.Context, record slog.Record) error {
 		argsStr += ")"
 	}
 
-	// Format: [module] <LEVEL>: <msg> (<args>) [MM:SS]
 	var prefix string
 	if modulePrefix != "" {
 		if h.withColors {
