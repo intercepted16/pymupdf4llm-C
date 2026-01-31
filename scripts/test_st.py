@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""AI generated script, just for me to quickly visualise the output in Markdown. Not safe for real usage."""
 import sys
 import streamlit as st
 from time import perf_counter
@@ -26,8 +27,6 @@ def main(input_pdf: str, output_file: str):
         st.session_state.current_idx = 0
         
         st.success(f"✓ Extracted in {end - start:.2f}s")
-    else:
-        result = st.session_state.result
     
     # Load pages on demand
     def load_page(idx):
@@ -63,7 +62,7 @@ def main(input_pdf: str, output_file: str):
     content = load_page(st.session_state.current_idx)
     
     if content:
-        st.markdown(content, unsafe_allow_html=True)
+        st.markdown(content, unsafe_allow_html=True) # this is a one-off script, allow it.
     else:
         st.info("No pages available yet")
 
