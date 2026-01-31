@@ -10,7 +10,7 @@ Outputs JSON for every block: text, type, bounding box, font metrics, tables. Yo
 
 **Speed (averaged):** ~520 pages/second on CPU. 1 million pages in ~32 minutes.
 
-**Full performance breakdown** [here](#Performance_Breakdown)
+**Full performance breakdown** [here](#Performance-Breakdown)
 
 **Capabilities/comparisons to others tools** [here](#Capabilities).
 
