@@ -1,0 +1,9 @@
+#!/usr/bin/zsh
+deactivate
+unset STREAMLIT_SERVER_HEADLESS
+unset LD_LIBRARY_PATH
+
+if [ -n "$WATCHEXEC_PID" ]; then
+    kill $WATCHEXEC_PID 2>/dev/null
+fi
+

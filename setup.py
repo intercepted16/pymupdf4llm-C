@@ -18,69 +18,75 @@ LIB_BASENAME = "tomd"
 
 
 class build_py(build_py_base):
-    """Custom build that compiles the MuPDF shared library with CMake."""
+    """Custom build that compiles the Go shared library."""
 
     def run(self) -> None:
         self._build_libtomd()
         super().run()
 
     def _build_libtomd(self) -> None:
+        go_dir = ROOT / "go"
         build_dir = ROOT / "build"
-        cmake_build_type = os.environ.get("CMAKE_BUILD_TYPE", "Release")
 
         build_dir.mkdir(parents=True, exist_ok=True)
-        lib_output = build_dir / "lib"
 
-        # Use the *real* source directory, not ".."
-        source_dir = ROOT
+        # Download Go dependencies first
+        print("Downloading Go dependencies...")
+        try:
+            subprocess.check_call(["go", "mod", "download"], cwd=go_dir)
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Failed to download Go dependencies: {e}")
+            # Continue anyway, build might still work
 
-        configure_cmd = [
-            "cmake",
-            str(source_dir),
-            f"-DCMAKE_BUILD_TYPE={cmake_build_type}",
-            f"-DMUPDF_LIB_DIR={ROOT / 'lib' / 'mupdf'}",
+        # Determine platform-specific extension
+        if sys.platform == "linux":
+            lib_ext = ".so"
+        elif sys.platform == "darwin":
+            lib_ext = ".dylib"
+        elif sys.platform == "win32":
+            lib_ext = ".dll"
+        else:
+            lib_ext = ".so"
+
+        lib_name = f"lib{LIB_BASENAME}{lib_ext}"
+        output_path = build_dir / lib_name
+
+        # Build the Go shared library
+        print(f"Building Go shared library: {lib_name}")
+        build_cmd = [
+            "go",
+            "build",
+            "-buildmode=c-shared",
+            "-o",
+            str(output_path),
+            "./cmd/tomd",
         ]
-        build_cmd = ["cmake", "--build", ".", "--target", TARGET_NAME]
 
         env = os.environ.copy()
-        env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", str(os.cpu_count() or 1))
 
-        subprocess.check_call(["cmake", "--version"], env=env)
-        subprocess.check_call(configure_cmd, env=env, cwd=build_dir)
-        subprocess.check_call(build_cmd, env=env, cwd=build_dir)
+        try:
+            subprocess.check_call(build_cmd, cwd=go_dir, env=env)
+        except subprocess.CalledProcessError as e:
+            print(f"Error building Go library: {e}")
+            raise
 
-        produced = self._find_library(lib_output)
+        if not output_path.exists():
+            raise FileNotFoundError(
+                f"Go build succeeded but library not found at {output_path}"
+            )
+
+        # Copy to package directory
         target_dir = Path(self.build_lib) / PACKAGENAME / "lib"
         target_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(produced, target_dir / produced.name)
 
-        # Also copy the MuPDF shared library dependency
-        mupdf_lib_dir = ROOT / "lib" / "mupdf"
-        if mupdf_lib_dir.exists():
-            for lib_file in mupdf_lib_dir.glob(
-                "libmupdf.so.*.*"
-            ):  # match versioned shared libs
-                if lib_file.is_file():
-                    shutil.copy2(lib_file, target_dir / lib_file.name)
-
-    @staticmethod
-    def _find_library(search_dir: Path) -> Path:
-        suffixes = {
-            "linux": ".so",
-            "darwin": ".dylib",
-            "win32": ".dll",
-        }
-        platform = sys.platform
-        suffix = suffixes.get(platform, ".so")
-
-        pattern = f"*{LIB_BASENAME}*{suffix}"
-        candidates = sorted(p for p in search_dir.glob(pattern) if p.is_file())
-        if not candidates:
-            raise FileNotFoundError(
-                f"Unable to locate built {LIB_BASENAME} library in {search_dir}"
-            )
-        return candidates[0]
+        print(f"Copying {output_path} to {target_dir / lib_name}")
+        shutil.copy2(output_path, target_dir / lib_name)
 
 
 if __name__ == "__main__":
-    setup(cmdclass={"build_py": build_py})
+    setup(
+        name=PACKAGENAME,
+        packages=[PACKAGENAME],
+        package_data={PACKAGENAME: ["lib/*.so", "lib/*.dylib", "lib/*.dll"]},
+        cmdclass={"build_py": build_py},
+    )

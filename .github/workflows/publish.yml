@@ -40,6 +40,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: go/go.sum
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh

@@ -1,0 +1,7 @@
+#!/usr/bin/zsh
+source .venv/bin/activate
+STREAMLIT_SERVER_HEADLESS=true
+
+nohup watchexec -w go -w . -e go -e c ./build.sh > ~/.watchexec.log 2>&1 &
+export WATCHEXEC_PID=$!
+export LD_LIBRARY_PATH=$(pwd)/lib/mupdf:$LD_LIBRARY_PATH
