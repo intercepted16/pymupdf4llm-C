@@ -85,7 +85,8 @@ for page in pages:
     
 # Access individual blocks
 for block in pages[0]:
-    print(f"{block.type}: {block.text if hasattr(block, 'text') else ''}")
+    print(f"Block type: {block.type}")
+    print(f"Has {len(block.spans)} spans")
 ```
 
 > This still saves it to `result.path`; it just allows you to load it into memory. If you don't want to write to disk at all, consider providing a special path.
