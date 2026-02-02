@@ -67,6 +67,8 @@ In `go/cmd/tomd/main.go`, there is a basic cli, that can be used via:
 go run cmd/tomd <pdf_path> [output_json]
 ```
 
+Make sure to set `LD_LIBRARY_PATH` correctly when running to include `lib/mupdf`, as seen in `.zshenter`
+
 You could also manually build the Go shared library if you want to use that in any other language.
 I won't go into detail here, however.
 
