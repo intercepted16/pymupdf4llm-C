@@ -1,8 +1,9 @@
-# PyMuPDF4LLM-C
+# FibrumPDF
 
 > This projects C extension has now been rewritten in Go. Performance, quality, and code quality have all improved. However, the Python-API remains the same.
+> It's also been renamed from PyMUPDF4LLM-C, because that was way too close to PyMuPDF4LLM.
 
-A "blazingly-fast" (oh wait, this isn't in Rust..) PDF extractor **for Python** written in Go using MuPDF in the backend, inspired by `pymupdf4llm`. I took many of its heuristics and approaches. Initially, it was supposed to be a 1:1 port (just generating the same Markdown output), but I later pivoted.
+A fast PDF extractor for Python written in Go using MuPDF in the backend, inspired by `pymupdf4llm`. I took many of its heuristics and approaches. Initially, it was supposed to be a 1:1 port (just generating the same Markdown output), but I later pivoted.
 
 Most extractors give you raw text (fast but useless) or *full-on* OCR/ML. This is a middle ground.
 
@@ -11,10 +12,6 @@ Outputs JSON for every block: text, type, bounding box, font metrics, tables. Yo
 **Speed (averaged):** ~520 pages/second on CPU. 1 million pages in ~32 minutes.
 
 **Full performance breakdown** [here](#Performance-Breakdown)
-
-**Capabilities/comparisons to others tools** [here](#Capabilities).
-
-**Primarily intended for use with Python bindings.**
 
 ---
 
@@ -31,21 +28,8 @@ pip install pymupdf4llm-c
 **To build from source**, see [BUILD.md](BUILD.md). 
 
 ---
-# Capabilities
 
-| Tool            | Speed (pps) | Tables | Images (Figures)                                  | OCR (Y/N)     | JSON Output      | Best For              |
-| --------------- | ----------- | ------ | ------------------------------------------------- | ------------- | ---------------- | --------------------- |
-| pymupdf4llm-C   | ~520        | Yes    | No (WIP)                                          | N             | Yes (structured) | RAG, high volume      |
-| pymupdf4llm     | ~10         | Yes    | Yes (but not ML to get contents)                  | N             | Markdown         | General extraction    |
-| pymupdf (alone) | ~250        | No     | No, not by itself, requires more effort I believe | N             | No (text only)   | basic text extraction |
-| marker          | ~0.5-1      | Yes    | Yes (contents with ML?)                           | Y (optional?) | Markdown         | Maximum fidelity      |
-| docling         | ~2-5        | Yes    | Yes                                               | Y             | JSON             | Document intelligence |
-| PaddleOCR       | ~20-50      | Yes    | Yes                                               | Y             | Text             | Scanned documents     |
-
-
-**Trade-off:** speed and control vs automatic extraction. Marker and Docling give higher fidelity if you have time.
-
-## what it handles well
+## What it's good at
 
 - millions of pages, fast
 - custom parsing logic; you own the rules
@@ -53,7 +37,7 @@ pip install pymupdf4llm-c
 - CPU only; no expensive inference
 - iterating on parsing logic without waiting hours
 
-## what it doesn't handle
+## What it's bad at
 
 - scanned or image-heavy PDFs (no OCR)
 - 99%+ accuracy on edge cases; trades precision for speed
@@ -287,22 +271,6 @@ optimized for well-formed digital PDFs. scanned documents, complex table structu
 **commercial use?**  
 only under AGPL-v3 or with a license from Artifex (MuPDF's creators). see [LICENSE](LICENSE)
 
-**Any trade-offs due to the speed gains; you must have lost some fidelity from `pymupdf4llm`?**
-If we're talking trade-offs in comparison to PyMuPDF4LLM:
-
-Not as much as you'd think.
-
-The reason for PyMuPDF4LLM being so slow wasn't due to its quality. It was an inefficient code-base. O(n^2) algorithms, raw numbers in Python, pretty much just unoptimized code and a bad language for lots of maths.
-
-This isn't a trade-off of the project itself, but there may still be minor cases where I haven't 100% copied the heuristics.
-
-If we're talking about trade-offs in comparison to tools like Paddle, Marker & Docling:
-
-It does not do any fancy ML. It's just some basic geometric maths. Therefore it won't handle:
-
-- scanned pages; no OCR  
-- & complex tables or tables without some form of edges 
-
 **why did you build this?**
 Dumb reason. I was building a RAG project with my dad (I'm 15). He did not care about speed at all. But I just got bored of waiting for chunking the PDFs every time I made a minor change. I couldn't find anything with even 50% of the quality that would be faster. And anyway, my chunks were trash. So it was either: raw text, or ML, and I didn't want either of them.
 
@@ -347,7 +315,8 @@ see [LICENSE](LICENSE) for the legal stuff.
 
 ## links
 
-- repo: [github.com/intercepted16/pymupdf4llm-C](https://github.com/intercepted16/pymupdf4llm-C)
+- repo: [github.com/intercepted16/pymupdf4llm-C](https://github.com/intercepted16/fibrumpdf)
 - pypi: [pymupdf4llm-C](https://pypi.org/project/pymupdf4llm-C)
 
 feedback welcome.
+
