@@ -18,7 +18,7 @@ Outputs JSON for every block: text, type, bounding box, font metrics, tables. Yo
 # Installation
 
 ```bash
-pip install pymupdf4llm-c
+pip install fibrum-pdf
 ```
 
 *You can prefix this with whatever tools you use, like `uv`, `poetry`, etc.*
@@ -49,7 +49,7 @@ pip install pymupdf4llm-c
 ### basic
 
 ```python
-from pymupdf4llm_c import to_json
+from fibrum_pdf import to_json
 
 result = to_json("example.pdf", output="example.json")
 print(f"Extracted to: {result.path}")
@@ -109,7 +109,7 @@ block_markdown = pages[0][0].markdown
 ### command-line
 
 ```bash
-python -m pymupdf4llm_c.main input.pdf [output_dir]
+python -m fibrum_pdf.main input.pdf [output_dir]
 ```
 
 ---
@@ -315,8 +315,5 @@ see [LICENSE](LICENSE) for the legal stuff.
 
 ## links
 
-- repo: [github.com/intercepted16/pymupdf4llm-C](https://github.com/intercepted16/fibrumpdf)
-- pypi: [pymupdf4llm-C](https://pypi.org/project/pymupdf4llm-C)
-
-feedback welcome.
-
+- repo: [github.com/intercepted16/fibrum-pdf](https://github.com/intercepted16/fibrumpdf)
+- pypi: [fibrum-pdf](https://pypi.org/project/fibrum-pdf)
