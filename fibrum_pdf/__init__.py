@@ -18,6 +18,6 @@ __all__ = [
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 try:
-    __version__ = metadata.version("pymupdf4llm-c")
+    __version__ = metadata.version("fibrum-pdf")
 except metadata.PackageNotFoundError:
     __version__ = "0.0.0"

@@ -27,7 +27,7 @@ Repository = "https://github.com/intercepted16/pymupdf4llm-C"
 Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 
 [project.scripts]
-pymupdf4llm-c = "pymupdf4llm_c.main:main"
+fibrum-pdf = "fibrum_pdf.main:main"
 
 [tool.cibuildwheel]
 skip = ["*-musllinux*", "*i686*", "*aarch64*"]
