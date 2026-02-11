@@ -19,7 +19,7 @@ except ImportError:
     from setuptools.command.bdist_wheel import bdist_wheel as bdist_wheel_base
 
 ROOT = Path(__file__).parent.resolve()
-PACKAGENAME = "pymupdf4llm_c"
+PACKAGENAME = "fibrum_pdf"
 TARGET_NAME = "tomd"
 LIB_BASENAME = "tomd"
 

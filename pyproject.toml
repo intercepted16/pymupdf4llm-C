@@ -3,9 +3,9 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pymupdf4llm-c"
-version = "2.0.0"
-description = "C-backed PDF to structured JSON extractor."
+name = "fibrum-pdf"
+version = "1.0.2"
+description = "A fast PDF extractor; a 500 pages/s alternative to Marker, Docling, PyMUPDF4LLM & others."
 authors = [{ name = "Adit Bajaj" }]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -27,7 +27,7 @@ Repository = "https://github.com/intercepted16/pymupdf4llm-C"
 Issues = "https://github.com/intercepted16/pymupdf4llm-C/issues"
 
 [project.scripts]
-pymupdf4llm-c = "pymupdf4llm_c.main:main"
+fibrum-pdf = "fibrum_pdf.main:main"
 
 [tool.cibuildwheel]
 skip = ["*-musllinux*", "*i686*", "*aarch64*"]
